@@ -43,13 +43,13 @@ jobs:
 
       - name: Lint with Ruff
         run: |
-          pip install ruff
-          ruff check . --exclude=.venv,__pycache__,.git,.terraform || true
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry run ruff check . --exclude=.venv,__pycache__,.git,.terraform || true
 
       - name: Type check with Mypy
         run: |
-          pip install mypy types-requests
-          mypy . --ignore-missing-imports --exclude ".venv|.terraform" || true
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry run mypy . --ignore-missing-imports --exclude ".venv|.terraform" || true
 
       - name: Run Pytest
         run: |
