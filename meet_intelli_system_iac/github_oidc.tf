@@ -91,10 +91,7 @@ resource "aws_iam_role_policy" "github_actions_policy" {
           "ecs:ListTasks",
           "ecs:RegisterTaskDefinition"
         ]
-        Resource = [
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project_name}-cluster/${var.project_name}-*-service",
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.project_name}-*"
-        ]
+        Resource = "*"
       },
       # IAM permissions for task role passthrough
       {
