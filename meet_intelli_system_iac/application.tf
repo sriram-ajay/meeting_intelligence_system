@@ -45,3 +45,20 @@ resource "aws_lb_listener" "http" {
     target_group_arn = aws_lb_target_group.ui[0].arn
   }
 }
+
+resource "aws_lb_listener_rule" "api" {
+  count        = var.deploy_app ? 1 : 0
+  listener_arn = aws_lb_listener.http[0].arn
+  priority     = 10
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api[0].arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/*", "/health", "/docs", "/openapi.json"]
+    }
+  }
+}

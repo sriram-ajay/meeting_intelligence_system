@@ -11,8 +11,10 @@ env:
   ECR_REPOSITORY_API: meeting-intel-api
   ECR_REPOSITORY_UI: meeting-intel-ui
   ECS_CLUSTER: meeting-intel-cluster
-  ECS_SERVICE: meeting-intel-service
-  ECS_TASK_DEFINITION: meeting-intel-app
+  ECS_SERVICE_API: meeting-intel-api-service
+  ECS_SERVICE_UI: meeting-intel-ui-service
+  ECS_TASK_DEFINITION_API: meeting-intel-api
+  ECS_TASK_DEFINITION_UI: meeting-intel-ui
 
 jobs:
   deploy:
@@ -57,31 +59,43 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      - name: Download existing Task Definition
+      - name: Download API Task Definition
         run: |
-          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }} --query taskDefinition > task-definition.json
+          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_API }} --query taskDefinition > task-def-api.json
 
       - name: Update API image in task definition
         id: task-def-api
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: task-definition.json
+          task-definition: task-def-api.json
           container-name: api
           image: ${{ steps.image-api.outputs.image }}
+
+      - name: Deploy API to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def-api.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_API }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Download UI Task Definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_UI }} --query taskDefinition > task-def-ui.json
 
       - name: Update UI image in task definition
         id: task-def-ui
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: ${{ steps.task-def-api.outputs.task-definition }}
+          task-definition: task-def-ui.json
           container-name: ui
           image: ${{ steps.image-ui.outputs.image }}
 
-      - name: Deploy to Amazon ECS
+      - name: Deploy UI to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def-ui.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
+          service: ${{ env.ECS_SERVICE_UI }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
@@ -89,8 +103,9 @@ jobs:
         if: success()
         run: |
           echo "✅ Deployment completed successfully"
-          echo "Service: ${{ env.ECS_SERVICE }}"
           echo "Cluster: ${{ env.ECS_CLUSTER }}"
+          echo "API Service: ${{ env.ECS_SERVICE_API }}"
+          echo "UI Service: ${{ env.ECS_SERVICE_UI }}"
           echo "Image Tag: ${{ github.sha }}"
 
       - name: Deployment failure notification
