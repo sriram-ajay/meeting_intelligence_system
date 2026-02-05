@@ -26,6 +26,10 @@ data/
 *.tfstate
 *.tfstate.*
 .terraform.lock.hcl
+state.json
+meet_intelli_system_iac/state.json
+meet_intelli_system_iac/terraform.tfstate
+meet_intelli_system_iac/terraform.tfstate.backup
 
 # Application Logs
 *.log

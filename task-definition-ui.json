@@ -1,0 +1,32 @@
+[
+  {
+    "name": "ui",
+    "image": "PLACEHOLDER_UI_IMAGE_URI",
+    "essential": true,
+    "portMappings": [
+      {
+        "containerPort": 8501,
+        "hostPort": 8501,
+        "protocol": "tcp"
+      }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/meeting-intel",
+        "awslogs-region": "us-east-1",
+        "awslogs-stream-prefix": "ui"
+      }
+    },
+    "environment": [
+      {
+        "name": "API_HOST",
+        "value": "meeting-intel-api-alb"
+      },
+      {
+        "name": "API_PORT",
+        "value": "8000"
+      }
+    ]
+  }
+]

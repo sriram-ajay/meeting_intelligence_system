@@ -1,0 +1,32 @@
+[
+  {
+    "name": "api",
+    "image": "PLACEHOLDER_API_IMAGE_URI",
+    "essential": true,
+    "portMappings": [
+      {
+        "containerPort": 8000,
+        "hostPort": 8000,
+        "protocol": "tcp"
+      }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/meeting-intel",
+        "awslogs-region": "us-east-1",
+        "awslogs-stream-prefix": "api"
+      }
+    },
+    "environment": [
+      {
+        "name": "ENVIRONMENT",
+        "value": "production"
+      },
+      {
+        "name": "DATABASE_URI",
+        "value": "/data/lancedb"
+      }
+    ]
+  }
+]
