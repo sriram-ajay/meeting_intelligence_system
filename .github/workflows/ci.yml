@@ -1,0 +1,66 @@
+name: CI - Build & Test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry --version
+
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      - name: Install dependencies
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry config virtualenvs.create false
+          poetry install
+
+      - name: Lint with Ruff
+        run: |
+          pip install ruff
+          ruff check . --exclude=.venv,__pycache__,.git,.terraform || true
+
+      - name: Type check with Mypy
+        run: |
+          pip install mypy types-requests
+          mypy . --ignore-missing-imports --exclude ".venv|.terraform" || true
+
+      - name: Run Pytest
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          export PYTHONPATH=$PYTHONPATH:.
+          poetry run pytest tests/ -v --cov=api_service --cov=ui_service --cov=core_intelligence --cov-report=xml
+
+      - name: Build Docker API Image (Check)
+        run: |
+          docker build -t meeting-intel-api-check -f api_service/Dockerfile .
+
+      - name: Build Docker UI Image (Check)
+        run: |
+          docker build -t meeting-intel-ui-check -f ui_service/Dockerfile .

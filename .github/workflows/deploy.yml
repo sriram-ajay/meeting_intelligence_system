@@ -1,0 +1,101 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-west-2
+  ECR_REPOSITORY_API: meeting-intel-api
+  ECR_REPOSITORY_UI: meeting-intel-ui
+  ECS_CLUSTER: meeting-intel-cluster
+  ECS_SERVICE: meeting-intel-service
+  ECS_TASK_DEFINITION: meeting-intel-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push API image
+        id: image-api
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f api_service/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_API:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push UI image
+        id: image-ui
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f ui_service/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download existing Task Definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }} --query taskDefinition > task-definition.json
+
+      - name: Update API image in task definition
+        id: task-def-api
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: api
+          image: ${{ steps.image-api.outputs.image }}
+
+      - name: Update UI image in task definition
+        id: task-def-ui
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def-api.outputs.task-definition }}
+          container-name: ui
+          image: ${{ steps.image-ui.outputs.image }}
+
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def-ui.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: ECS deployment status
+        if: success()
+        run: |
+          echo "✅ Deployment completed successfully"
+          echo "API Service: ${{ env.ECS_SERVICE_API }}"
+          echo "UI Service: ${{ env.ECS_SERVICE_UI }}"
+          echo "Cluster: ${{ env.ECS_CLUSTER }}"
+          echo "Image Tag: ${{ github.sha }}"
+
+      - name: Deployment failure notification
+        if: failure()
+        run: |
+          echo "❌ Deployment failed"
+          exit 1
