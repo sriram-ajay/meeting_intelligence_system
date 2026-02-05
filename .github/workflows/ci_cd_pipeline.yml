@@ -68,15 +68,57 @@ jobs:
           poetry run pytest tests/ -v
 
   image-verify:
-    name: 2. Image Verification
+    name: 2. Image Verification & Push to ECR
     needs: code-test
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image-api: ${{ steps.image-api.outputs.image }}
+      image-ui: ${{ steps.image-ui.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Verify Docker Builds
         run: |
           docker build -f api_service/Dockerfile -t api-verify:local .
           docker build -f ui_service/Dockerfile -t ui-verify:local .
+
+      - name: Configure AWS credentials (main only)
+        if: github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR (main only)
+        if: github.ref == 'refs/heads/main'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push API Image (main only)
+        if: github.ref == 'refs/heads/main'
+        id: image-api
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f api_service/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_API:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build and Push UI Image (main only)
+        if: github.ref == 'refs/heads/main'
+        id: image-ui
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f ui_service/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
   infrastructure-check:
     name: 3. Infrastructure Check
@@ -98,8 +140,8 @@ jobs:
           aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE_API }} ${{ env.ECS_SERVICE_UI }} --query 'services[*].status'
 
   deploy:
-    name: 4. Build & Deploy to Production
-    needs: [code-test, image-verify, infrastructure-check]
+    name: 4. Deploy to Production
+    needs: [image-verify, infrastructure-check]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -114,32 +156,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and Push API Image
-        id: image-api
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -f api_service/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_API:latest .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:latest
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-      - name: Build and Push UI Image
-        id: image-ui
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -f ui_service/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
       - name: Update API Task Definition
         run: |
           aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_API }} --query taskDefinition > task-def-api.json
@@ -150,7 +166,7 @@ jobs:
         with:
           task-definition: task-def-api.json
           container-name: api
-          image: ${{ steps.image-api.outputs.image }}
+          image: ${{ needs.image-verify.outputs.image-api }}
 
       - name: Deploy API Service
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
@@ -170,7 +186,7 @@ jobs:
         with:
           task-definition: task-def-ui.json
           container-name: ui
-          image: ${{ steps.image-ui.outputs.image }}
+          image: ${{ needs.image-verify.outputs.image-ui }}
 
       - name: Deploy UI Service
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
