@@ -105,7 +105,12 @@ resource "aws_ecs_task_definition" "ui" {
         { name = "ENVIRONMENT", value = "production" },
         { name = "API_HOST", value = aws_lb.main.dns_name }, # Now pointing to ALB DNS
         { name = "API_PORT", value = "80" },               # Talking to ALB on port 80
-        { name = "API_PROTOCOL", value = "http" }
+        { name = "API_PROTOCOL", value = "http" },
+        { name = "DATABASE_URI", value = "s3://${aws_s3_bucket.data_store.id}/lancedb" },
+        { name = "BEDROCK_REGION", value = var.aws_region },
+        { name = "BEDROCK_LLM_MODEL_ID", value = var.bedrock_llm_id },
+        { name = "LLM_PROVIDER", value = var.llm_provider },
+        { name = "EMBED_PROVIDER", value = var.embed_provider }
       ]
       logConfiguration = {
         logDriver = "awslogs"

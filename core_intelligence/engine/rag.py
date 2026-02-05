@@ -43,10 +43,11 @@ class RAGEngine:
         settings = get_settings()
         self.uri = uri or settings.database_uri
         
-        # Create database directory if needed
-        db_dir = os.path.dirname(self.uri)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
+        # Create database directory if needed (only for local paths)
+        if not self.uri.startswith(("s3://", "gs://", "az://")):
+            db_dir = os.path.dirname(self.uri)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
         
         # Get providers from DI container or use provided instances
         di_container = get_di_container()

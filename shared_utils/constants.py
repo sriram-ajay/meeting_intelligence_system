@@ -76,10 +76,10 @@ class LogScope:
 class APIEndpoints:
     """API route definitions."""
     HEALTH = "/health"
-    UPLOAD = "/upload"
-    QUERY = "/query"
-    MEETINGS = "/meetings"
-    MEETINGS_BY_ID = "/meetings/{meeting_id}"
+    UPLOAD = "/api/upload"
+    QUERY = "/api/query"
+    MEETINGS = "/api/meetings"
+    MEETINGS_BY_ID = "/api/meetings/{meeting_id}"
 
 
 # Error codes
