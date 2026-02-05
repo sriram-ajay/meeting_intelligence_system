@@ -21,6 +21,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmagic-dev
+
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
@@ -39,60 +44,36 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           poetry config virtualenvs.create false
-          poetry install
+          poetry install --no-root
 
       - name: Lint with Ruff
         run: |
-          pip install ruff
-          ruff check . --exclude=.venv,__pycache__,.git,.terraform || true
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry run ruff check . --exclude=.venv,__pycache__,.git,.terraform || true
 
       - name: Type check with Mypy
         run: |
-          pip install mypy
-          mypy api_service/src core_intelligence shared_utils --ignore-missing-imports || true
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry run mypy . --ignore-missing-imports --exclude ".venv|.terraform" || true
 
-      - name: Run tests with pytest
+      - name: Run Pytest
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          pytest tests/ -v --tb=short --cov=api_service --cov=core_intelligence --cov=shared_utils --cov-report=term-missing
+          export PYTHONPATH=$PYTHONPATH:.
+          # Set dummy environment variables for tests
+          export LLM_PROVIDER=openai
+          export BEDROCK_REGION=eu-west-2
+          export BEDROCK_LLM_MODEL_ID=dummy
+          export EMBED_PROVIDER=openai
+          export OPENAI_API_KEY=sk-dummy-key-for-tests
+          export DATABASE_URI=./data/test_lancedb
+          export ENVIRONMENT=development
+          poetry run pytest tests/ -v --cov=api_service --cov=ui_service --cov=core_intelligence --cov-report=xml
 
-  build-docker:
-    runs-on: ubuntu-latest
-    needs: test
-    if: success()
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build Docker images
+      - name: Build Docker API Image (Check)
         run: |
-          docker-compose build --no-cache
+          docker build -t meeting-intel-api-check -f api_service/Dockerfile .
 
-      - name: Test Docker build
+      - name: Build Docker UI Image (Check)
         run: |
-          docker-compose up --abort-on-container-exit --timeout 60 || true
-
-  code-quality:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Check dependencies for vulnerabilities
-        run: |
-          pip install safety
-          safety check --json || true
-
-      - name: Lint Dockerfiles
-        run: |
-          pip install hadolint-py
-          hadolint api_service/Dockerfile || true
-          hadolint ui_service/Dockerfile || true
+          docker build -t meeting-intel-ui-check -f ui_service/Dockerfile .

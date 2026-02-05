@@ -5,7 +5,7 @@ from shared_utils.config_loader import Settings, get_settings
 def test_settings_validation_embed_provider():
     # Valid
     Settings(
-        bedrock_region="us-east-1",
+        bedrock_region="eu-west-2",
         bedrock_llm_model_id="id",
         embed_provider="openai",
         database_uri="uri",
@@ -16,7 +16,7 @@ def test_settings_validation_embed_provider():
     # Invalid
     with pytest.raises(ValueError):
         Settings(
-            bedrock_region="us-east-1",
+            bedrock_region="eu-west-2",
             bedrock_llm_model_id="id",
             embed_provider="invalid",
             database_uri="uri",
@@ -29,7 +29,7 @@ def test_get_api_base_url():
         api_host="api.test.com",
         api_port=8000,
         api_version="v1",
-        bedrock_region="us-east-1",
+        bedrock_region="eu-west-2",
         bedrock_llm_model_id="id",
         embed_provider="openai",
         database_uri="uri",
@@ -43,7 +43,7 @@ def test_get_api_base_url_production():
         api_host="api.test.com",
         api_port=443,
         api_version="v1",
-        bedrock_region="us-east-1",
+        bedrock_region="eu-west-2",
         bedrock_llm_model_id="id",
         embed_provider="openai",
         database_uri="uri",

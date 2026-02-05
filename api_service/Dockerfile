@@ -5,9 +5,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
+COPY pyproject.toml poetry.lock ./
 RUN pip install --no-cache-dir poetry && \
     poetry config virtualenvs.create false && \
     poetry install --no-root && \
