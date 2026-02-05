@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api_service/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./api_service:/app/api_service
+      - ./core_intelligence:/app/core_intelligence
+      - ./shared_utils:/app/shared_utils
+      - ./tests:/app/tests
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URI=/app/data/lancedb
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui_service/Dockerfile
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./ui_service:/app/ui_service
+      - ./shared_utils:/app/shared_utils
+    env_file:
+      - .env
+    environment:
+      - API_HOST=api
+      - API_PORT=8000
+    depends_on:
+      - api
