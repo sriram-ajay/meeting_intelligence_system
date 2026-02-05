@@ -42,6 +42,7 @@ def test_get_api_base_url_production():
     settings = Settings(
         api_host="api.test.com",
         api_port=443,
+        api_protocol="https",
         api_version="v1",
         bedrock_region="eu-west-2",
         bedrock_llm_model_id="id",

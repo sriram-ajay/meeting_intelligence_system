@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # API Base URL Configuration
     api_host: str = "localhost"  # Host for API (localhost, 0.0.0.0, or domain)
     api_port: int = 8000  # Port for API service
+    api_protocol: str = "http"  # "http" or "https"
     
     # LLM Configuration
     llm_provider: str  # "bedrock" or "openai"
@@ -97,19 +98,18 @@ class Settings(BaseSettings):
         return v.lower()
     
     def get_api_base_url(self) -> str:
-        """Get full API base URL constructed from host and port.
+        """Get full API base URL constructed from host, port and protocol.
         
         Returns:
             Full API base URL (e.g., "http://localhost:8000")
         """
-        protocol = "https" if self.environment == "production" else "http"
         # Don't add port if it's standard (80 for http, 443 for https)
         port_str = "" if (
-            (protocol == "http" and self.api_port == 80) or
-            (protocol == "https" and self.api_port == 443)
+            (self.api_protocol == "http" and self.api_port == 80) or
+            (self.api_protocol == "https" and self.api_port == 443)
         ) else f":{self.api_port}"
         
-        return f"{protocol}://{self.api_host}{port_str}"
+        return f"{self.api_protocol}://{self.api_host}{port_str}"
 
 
 @lru_cache()

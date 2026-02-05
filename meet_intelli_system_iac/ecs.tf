@@ -30,15 +30,14 @@ resource "aws_cloudwatch_log_group" "ecs" {
   tags = { Name = "${var.project_name}-logs" }
 }
 
-# --- ECS Task Definition (Combined API + UI) ---
-
-resource "aws_ecs_task_definition" "app" {
+# --- API Task Definition ---
+resource "aws_ecs_task_definition" "api" {
   count                    = var.deploy_app ? 1 : 0
-  family                   = "${var.project_name}-app"
+  family                   = "${var.project_name}-api"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = 2048
-  memory                   = 4096
+  cpu                      = "512"
+  memory                   = "1024"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
@@ -58,9 +57,6 @@ resource "aws_ecs_task_definition" "app" {
         { name = "APP_VERSION", value = var.app_version },
         { name = "APP_DESCRIPTION", value = var.app_description },
         { name = "API_VERSION", value = var.api_version },
-        { name = "API_HOST", value = var.api_host },
-        { name = "API_PORT", value = tostring(var.api_port) },
-        { name = "API_PROTOCOL", value = var.api_protocol },
         { name = "DATABASE_URI", value = "s3://${aws_s3_bucket.data_store.id}/lancedb" },
         { name = "ENVIRONMENT", value = "production" },
         { name = "BEDROCK_REGION", value = var.aws_region },
@@ -77,7 +73,22 @@ resource "aws_ecs_task_definition" "app" {
           "awslogs-stream-prefix" = "api"
         }
       }
-    },
+    }
+  ])
+}
+
+# --- UI Task Definition ---
+resource "aws_ecs_task_definition" "ui" {
+  count                    = var.deploy_app ? 1 : 0
+  family                   = "${var.project_name}-ui"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "512"
+  memory                   = "1024"
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn            = aws_iam_role.ecs_task_role.arn
+
+  container_definitions = jsonencode([
     {
       name      = "ui"
       image     = "${aws_ecr_repository.ui.repository_url}:latest"
@@ -91,18 +102,15 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         { name = "APP_NAME", value = var.app_name },
         { name = "APP_VERSION", value = var.app_version },
-        { name = "APP_DESCRIPTION", value = var.app_description },
-        { name = "API_VERSION", value = var.api_version },
-        { name = "API_HOST", value = "localhost" }, # UI talks to API on localhost within same task
-        { name = "API_PORT", value = "8000" },
+        { name = "ENVIRONMENT", value = "production" },
+        { name = "API_HOST", value = aws_lb.main.dns_name }, # Now pointing to ALB DNS
+        { name = "API_PORT", value = "80" },               # Talking to ALB on port 80
         { name = "API_PROTOCOL", value = "http" },
         { name = "DATABASE_URI", value = "s3://${aws_s3_bucket.data_store.id}/lancedb" },
-        { name = "ENVIRONMENT", value = "production" },
         { name = "BEDROCK_REGION", value = var.aws_region },
         { name = "BEDROCK_LLM_MODEL_ID", value = var.bedrock_llm_id },
         { name = "LLM_PROVIDER", value = var.llm_provider },
-        { name = "EMBED_PROVIDER", value = var.embed_provider },
-        { name = "OPENAI_SECRET_NAME", value = var.openai_secret_name }
+        { name = "EMBED_PROVIDER", value = var.embed_provider }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -116,22 +124,15 @@ resource "aws_ecs_task_definition" "app" {
   ])
 }
 
-# --- ECS Service ---
-
-resource "aws_ecs_service" "app" {
+# --- API ECS Service ---
+resource "aws_ecs_service" "api" {
   count           = var.deploy_app ? 1 : 0
-  name            = "${var.project_name}-service"
+  name            = "${var.project_name}-api-service"
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app[0].arn
+  task_definition = aws_ecs_task_definition.api[0].arn
   desired_count   = 1
   launch_type     = "FARGATE"
   health_check_grace_period_seconds = 180
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.ui[0].arn
-    container_name   = "ui"
-    container_port   = 8501
-  }
 
   load_balancer {
     target_group_arn = aws_lb_target_group.api[0].arn
@@ -144,4 +145,31 @@ resource "aws_ecs_service" "app" {
     subnets         = aws_subnet.public[*].id
     assign_public_ip = true
   }
+
+  depends_on = [aws_lb_listener_rule.api]
+}
+
+# --- UI ECS Service ---
+resource "aws_ecs_service" "ui" {
+  count           = var.deploy_app ? 1 : 0
+  name            = "${var.project_name}-ui-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.ui[0].arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+  health_check_grace_period_seconds = 180
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.ui[0].arn
+    container_name   = "ui"
+    container_port   = 8501
+  }
+
+  network_configuration {
+    security_groups = [aws_security_group.ecs_sg.id]
+    subnets         = aws_subnet.public[*].id
+    assign_public_ip = true
+  }
+
+  depends_on = [aws_lb_listener.http]
 }

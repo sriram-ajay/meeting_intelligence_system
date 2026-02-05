@@ -10,6 +10,13 @@ terraform {
       version = "~> 3.0"
     }
   }
+
+  backend "s3" {
+    bucket  = "meeting-intel-terraform-state-637423277250"
+    key     = "meeting-intel/terraform.tfstate"
+    region  = "eu-west-2"
+    encrypt = true
+  }
 }
 
 provider "aws" {

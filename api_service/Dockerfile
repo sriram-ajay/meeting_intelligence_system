@@ -17,7 +17,6 @@ RUN pip install --no-cache-dir poetry && \
 COPY api_service ./api_service
 COPY core_intelligence ./core_intelligence
 COPY shared_utils ./shared_utils
-COPY tests ./tests
 
 RUN python -c "import nltk; nltk.download('punkt_tab'); nltk.download('punkt'); nltk.download('averaged_perceptron_tagger_eng')"
 

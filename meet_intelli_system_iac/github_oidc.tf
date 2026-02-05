@@ -35,7 +35,7 @@ resource "aws_iam_role" "github_actions_role" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:sriram-ajay/meeting_intelligence_system:ref:refs/heads/main"
+            "token.actions.githubusercontent.com:sub" = "repo:sriram-ajay/meeting_intelligence_system:*"
           }
         }
       }
@@ -88,13 +88,11 @@ resource "aws_iam_role_policy" "github_actions_policy" {
           "ecs:DescribeServices",
           "ecs:DescribeTaskDefinition",
           "ecs:DescribeTasks",
+          "ecs:DescribeClusters",
           "ecs:ListTasks",
           "ecs:RegisterTaskDefinition"
         ]
-        Resource = [
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${var.project_name}-cluster/*",
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.project_name}-*"
-        ]
+        Resource = "*"
       },
       # IAM permissions for task role passthrough
       {
