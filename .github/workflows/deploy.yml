@@ -85,12 +85,11 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
-      - name: ECS deployment status
+      - name: ECS deployment summary
         if: success()
         run: |
           echo "✅ Deployment completed successfully"
-          echo "API Service: ${{ env.ECS_SERVICE_API }}"
-          echo "UI Service: ${{ env.ECS_SERVICE_UI }}"
+          echo "Service: ${{ env.ECS_SERVICE }}"
           echo "Cluster: ${{ env.ECS_CLUSTER }}"
           echo "Image Tag: ${{ github.sha }}"
 
