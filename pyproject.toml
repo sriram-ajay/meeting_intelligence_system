@@ -3,6 +3,7 @@ name = "meeting-intelligence-system"
 version = "0.1.0"
 description = "AI-powered meeting transcript analysis system"
 authors = ["Gen AI Engineer"]
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
