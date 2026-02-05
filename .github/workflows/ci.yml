@@ -60,6 +60,14 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           export PYTHONPATH=$PYTHONPATH:.
+          # Set dummy environment variables for tests
+          export LLM_PROVIDER=openai
+          export BEDROCK_REGION=eu-west-2
+          export BEDROCK_LLM_MODEL_ID=dummy
+          export EMBED_PROVIDER=openai
+          export OPENAI_API_KEY=sk-dummy-key-for-tests
+          export DATABASE_URI=./data/test_lancedb
+          export ENVIRONMENT=development
           poetry run pytest tests/ -v --cov=api_service --cov=ui_service --cov=core_intelligence --cov-report=xml
 
       - name: Build Docker API Image (Check)
