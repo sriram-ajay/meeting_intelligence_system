@@ -48,7 +48,10 @@ try:
     di_container = get_di_container()
     di_container.validate_all_providers()
     rag_engine = RAGEngine(uri=settings.database_uri)
-    evaluation_engine = EvaluationEngine(llm_provider=di_container.get_llm_provider())
+    evaluation_engine = EvaluationEngine(
+        llm_provider=di_container.get_llm_provider(),
+        embedding_provider=di_container.get_embedding_provider()
+    )
     logger.info(
         "api_initialized",
         environment=settings.environment,

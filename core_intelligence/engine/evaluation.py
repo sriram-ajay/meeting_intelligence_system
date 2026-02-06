@@ -12,6 +12,8 @@ from ragas.metrics import (
 )
 from datasets import Dataset
 from llama_index.core import Settings
+from ragas.llms import LlamaIndexLLMWrapper
+from ragas.embeddings import LlamaIndexEmbeddingsWrapper
 
 from core_intelligence.schemas.models import EvaluationResult, QueryResponse
 from shared_utils.logging_utils import ContextualLogger
@@ -22,8 +24,9 @@ logger = ContextualLogger(scope=LogScope.MONITORING)
 class EvaluationEngine:
     """Evaluation engine using Ragas metrics."""
 
-    def __init__(self, llm_provider=None, metrics_path: str = "data/metrics/historical_metrics.json"):
+    def __init__(self, llm_provider=None, embedding_provider=None, metrics_path: str = "data/metrics/historical_metrics.json"):
         self.llm_provider = llm_provider
+        self.embedding_provider = embedding_provider
         self.metrics_path = metrics_path
         os.makedirs(os.path.dirname(self.metrics_path), exist_ok=True)
         
@@ -53,16 +56,27 @@ class EvaluationEngine:
         logger.info("evaluation_started", batch_size=len(queries), meeting_id=meeting_id)
         
         try:
-            # We select a subset of metrics that work well without heavy ground truth settings
-            # We explicitly pass the LLM and Embeddings if possible, 
-            # otherwise Ragas 0.1+ uses global defaults which we set in RAGEngine
+            # We explicitly pass the LLM and Embeddings to Ragas 0.2+ 
+            # This prevents Ragas from defaulting to OpenAI and failing if keys are missing
+            ragas_llm = LlamaIndexLLMWrapper(self.llm_provider._llm)
+            
+            # If we don't have an embedding provider passed in, try to get from Settings
+            embed_model = self.embedding_provider._embedding if self.embedding_provider else Settings.embed_model
+            ragas_embed = LlamaIndexEmbeddingsWrapper(embed_model)
+            
+            # Explicitly set the LLM and Embeddings on the metrics to avoid ChatOpenAI defaults
+            # This follows the "Bedrock for logic, OpenAI only for embeddings" architecture
+            metrics = [faithfulness, answer_relevancy, context_precision]
+            for metric in metrics:
+                metric.llm = ragas_llm
+                if hasattr(metric, "embeddings"):
+                    metric.embeddings = ragas_embed
+            
             result = evaluate(
                 dataset,
-                metrics=[
-                    faithfulness,
-                    answer_relevancy,
-                    context_precision,
-                ],
+                metrics=metrics,
+                llm=ragas_llm,
+                embeddings=ragas_embed
             )
             
             df = result.to_pandas()

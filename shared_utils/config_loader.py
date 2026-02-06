@@ -127,11 +127,20 @@ def get_settings() -> Settings:
     """
     settings = Settings()
     
-    # Fetch OpenAI key from Secrets Manager if configured
-    if settings.embed_provider == "openai" and settings.openai_secret_name:
+    # Fetch OpenAI key from Secrets Manager if needed
+    # Check both embed_provider AND llm_provider since we might need it for evaluation
+    needs_openai = (
+        settings.embed_provider == "openai" or 
+        settings.llm_provider == "openai" or 
+        os.environ.get("OPENAI_API_KEY") is None # Default assumption for evaluation
+    )
+    
+    if needs_openai and settings.openai_secret_name:
         secret_key = get_secret_from_aws(settings.openai_secret_name, settings.bedrock_region)
         if secret_key:
             settings.openai_api_key = secret_key
+            # IMPORTANT: Ragas and LangChain look for the standard Environment Variable
+            os.environ["OPENAI_API_KEY"] = secret_key
             logger.debug("fetched_openai_key_from_secrets_manager")
     
     # Log loaded configuration (sensitive values masked)
