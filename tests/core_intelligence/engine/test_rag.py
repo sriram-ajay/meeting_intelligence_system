@@ -21,7 +21,11 @@ def mock_providers():
         container.get_embedding_provider.return_value = embed
         container.get_llm_provider.return_value = llm
         mock_di.return_value = container
-        yield embed, llm
+        
+        # Patch GuardrailEngine and SemanticChunker to avoid side effects during init
+        with patch('core_intelligence.engine.rag.SemanticChunker') as mock_chunk:
+            with patch('core_intelligence.engine.rag.GuardrailEngine') as mock_guard:
+                yield embed, llm, mock_chunk, mock_guard
 
 @pytest.fixture
 def mock_lancedb():
@@ -34,6 +38,7 @@ def mock_lancedb():
 @patch('core_intelligence.engine.rag.LanceDBVectorStore')
 @patch('core_intelligence.engine.rag.StorageContext')
 def test_rag_engine_initialization(mock_storage, mock_vec_store, mock_providers, mock_lancedb):
+    embed, llm, _, _ = mock_providers
     engine = RAGEngine(uri="data/test_db")
     assert engine.uri == "data/test_db"
     assert engine.embedding_provider.name == "MockEmbed"
@@ -42,6 +47,7 @@ def test_rag_engine_initialization(mock_storage, mock_vec_store, mock_providers,
 @patch('core_intelligence.engine.rag.LanceDBVectorStore')
 @patch('core_intelligence.engine.rag.StorageContext')
 def test_index_transcript(mock_storage, mock_vec_store, mock_index, mock_providers, mock_lancedb):
+    embed, llm, _, _ = mock_providers
     engine = RAGEngine(uri="data/test_db")
     
     transcript = MeetingTranscript(

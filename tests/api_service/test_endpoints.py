@@ -1,6 +1,14 @@
 import pytest
-from fastapi.testclient import TestClient
+import sys
 from unittest.mock import MagicMock, patch
+
+# Mock ragas and datasets before importing the app to avoid ModuleNotFoundError
+mock_ragas = MagicMock()
+sys.modules["ragas"] = mock_ragas
+sys.modules["ragas.metrics"] = MagicMock()
+sys.modules["datasets"] = MagicMock()
+
+from fastapi.testclient import TestClient
 from api_service.src.main import app
 from shared_utils.constants import APIEndpoints
 
