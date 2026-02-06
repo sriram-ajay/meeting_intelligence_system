@@ -1,0 +1,14 @@
+Coffee Chat - No Agenda
+Date: Feb 8, 2026
+Attendees: Tina, Leo
+
+Tina: Hey Leo, how was your weekend?
+Leo: It was good, went hiking. A bit sore today.
+Tina: Nice! I just watched that new sci-fi show.
+Leo: Oh, the one with the robots?
+Tina: Yeah, super trippy. Makes you think about AI and stuff.
+Leo: Speaking of AI, I should probably check those training logs.
+Tina: No rush, it's a casual Monday.
+Leo: True. Coffee?
+Tina: Definitely.
+```

@@ -1,0 +1,13 @@
+Meeting: Budget Crisis Talk
+Date: February 6, 2026
+Attendees: Karen (CFO), Mike (Department Head), Chloe (Operations)
+
+Karen: Mike, these numbers don't add up. You're 40% over budget on hardware procurement.
+Mike: We had to scale for the rush! The old servers were literally smoking.
+Karen: You didn't get approval. This is a violation of the fiscal policy.
+Chloe: If I can interject, we could offset this by reducing the travel budget for next quarter.
+Mike: Absolutely not! We have three conferences in March.
+Karen: I'm freezing all non-essential spending until this is reconciled. 
+Mike: (Interrupting) You're going to kill the project velocity.
+Karen: The project won't matter if we're insolvent. Meeting over.
+```

@@ -70,6 +70,7 @@ class LogScope:
     PARSER = "transcript_parser"
     VALIDATION = "validation"
     ERROR_HANDLER = "error_handler"
+    MONITORING = "monitoring"
 
 
 # API endpoints and paths
@@ -80,6 +81,8 @@ class APIEndpoints:
     QUERY = "/api/query"
     MEETINGS = "/api/meetings"
     MEETINGS_BY_ID = "/api/meetings/{meeting_id}"
+    METRICS = "/api/metrics"
+    EVALUATE = "/api/evaluate"
 
 
 # Error codes

@@ -1,0 +1,10 @@
+Meeting: Legal Counsel Review - Data Privacy
+Date: Feb 9, 2026
+Attendees: Mr. Henderson (Legal), Ms. Vance (Compliance)
+
+Mr. Henderson: Pursuant to the new data directives, we must update Article IV, Section 2 of our service agreement.
+Ms. Vance: I concur. The indemnification clause requires more specific language regarding third-party breaches.
+Mr. Henderson: We should also verify the jurisdictional requirements for data residency in the EU.
+Ms. Vance: The GDPR audit is scheduled for March. We need to be fully compliant by then.
+Mr. Henderson: Agreed. I will draft the revisions by Friday for board review.
+```

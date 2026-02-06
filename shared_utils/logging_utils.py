@@ -144,22 +144,22 @@ class ContextualLogger:
         self.scope = scope
         self.logger = get_scoped_logger(scope)
     
-    def info(self, message: str, **kwargs):
+    def info(self, event_name: str, **kwargs):
         """Log info message with scope."""
-        self.logger.info(message, **kwargs)
+        self.logger.info(event_name, **kwargs)
     
-    def debug(self, message: str, **kwargs):
+    def debug(self, event_name: str, **kwargs):
         """Log debug message with scope."""
-        self.logger.debug(message, **kwargs)
+        self.logger.debug(event_name, **kwargs)
     
-    def warning(self, message: str, **kwargs):
+    def warning(self, event_name: str, **kwargs):
         """Log warning message with scope."""
-        self.logger.warning(message, **kwargs)
+        self.logger.warning(event_name, **kwargs)
     
-    def error(self, message: str, **kwargs):
+    def error(self, event_name: str, **kwargs):
         """Log error message with scope."""
-        self.logger.error(message, **kwargs)
+        self.logger.error(event_name, **kwargs)
     
-    def critical(self, message: str, **kwargs):
+    def critical(self, event_name: str, **kwargs):
         """Log critical message with scope."""
-        self.logger.critical(message, **kwargs)
+        self.logger.critical(event_name, **kwargs)
