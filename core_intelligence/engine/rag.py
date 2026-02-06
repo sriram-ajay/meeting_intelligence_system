@@ -30,6 +30,7 @@ from core_intelligence.engine.strategies.chunking import ChunkingStrategy, Segme
 from core_intelligence.engine.strategies.retrieval import RetrievalStrategy, RagFusionStrategy, HybridRerankRetriever
 from core_intelligence.engine.strategies.embedding import EmbeddingStrategy, StandardEmbedding
 from core_intelligence.engine.strategies.query_expansion import QueryExpander, LLMQueryEnhancer, NullExpander
+from core_intelligence.engine.guardrails import GuardrailEngine
 
 class RAGEngine:
     """RAG engine with pluggable providers and strategies."""
@@ -82,7 +83,10 @@ class RAGEngine:
         # 3. Use LLMQueryEnhancer to sharpen intent
         self.query_expander = query_expander or LLMQueryEnhancer()
         
-        # 4. Standard Provider-based Embeddings
+        # 4. Production Guardrails
+        self.guardrails = GuardrailEngine(llm=self.llm_provider._llm)
+        
+        # 5. Standard Provider-based Embeddings
         self.embedding_strategy = embedding_strategy or StandardEmbedding(self.embedding_provider._embedding)
         
         logger.info(
@@ -226,6 +230,15 @@ class RAGEngine:
             QueryError: If query execution fails
         """
         try:
+            # Step 0: Input Guardrail
+            if not self.guardrails.validate_input(query_str):
+                return QueryResponse(
+                    answer="I'm sorry, but I cannot process that query for safety or professional reasons.",
+                    sources=[],
+                    retrieved_contexts=[],
+                    action_items=[]
+                )
+
             # Step 1: Query Enhancement
             original_query = query_str
             # Only expand if it's very short or ambiguous
@@ -282,14 +295,22 @@ class RAGEngine:
             
             unique_sources = list(set(sources_metadata))
             
+            # Step 4: Output Grounding Guardrail (Production Grade)
+            final_answer = str(response)
+            is_grounded, safe_answer = self.guardrails.verify_grounding(final_answer, retrieved_texts)
+            
+            if not is_grounded:
+                logger.warning("hallucination_detected", original_answer=final_answer[:50])
+                final_answer = safe_answer
+
             logger.info(
                 "query_synthesis_complete",
                 sources_count=len(unique_sources),
-                answer_preview=str(response)[:50]
+                answer_preview=final_answer[:50]
             )
             
             return QueryResponse(
-                answer=str(response),
+                answer=final_answer,
                 sources=unique_sources,
                 retrieved_contexts=retrieved_texts,
                 action_items=[]
