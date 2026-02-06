@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 mock_ragas = MagicMock()
 sys.modules["ragas"] = mock_ragas
 sys.modules["ragas.metrics"] = MagicMock()
+sys.modules["ragas.llms"] = MagicMock()
+sys.modules["ragas.embeddings"] = MagicMock()
 sys.modules["datasets"] = MagicMock()
 
 from fastapi.testclient import TestClient
