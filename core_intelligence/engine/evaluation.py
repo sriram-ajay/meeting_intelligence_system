@@ -83,15 +83,23 @@ class EvaluationEngine:
             
             # Extract latency if available in responses
             latencies = [r.get("latency_ms", 0) if isinstance(r, dict) else getattr(r, "latency_ms", 0) for r in responses]
-            avg_latency = sum(latencies) / len(latencies) if latencies else 0
+            avg_latency = float(sum(latencies) / len(latencies)) if latencies else 0.0
+            
+            # Sanitize scores to handle NaN (common if search returns 0 docs or LLM fails)
+            # Standard JSON does not support NaN, which often causes ASGI application crashes
+            f_score = float(df["faithfulness"].mean()) if "faithfulness" in df and not pd.isna(df["faithfulness"].mean()) else 0.0
+            ar_score = float(df["answer_relevancy"].mean()) if "answer_relevancy" in df and not pd.isna(df["answer_relevancy"].mean()) else 0.0
+            cp_score = float(df["context_precision"].mean()) if "context_precision" in df and not pd.isna(df["context_precision"].mean()) else 0.0
+            
+            avg_score = (f_score + ar_score + cp_score) / 3.0
             
             eval_res = EvaluationResult(
                 meeting_id=meeting_id,
-                faithfulness=df["faithfulness"].mean(),
-                answer_relevancy=df["answer_relevancy"].mean(),
-                context_precision=df["context_precision"].mean(),
+                faithfulness=f_score,
+                answer_relevancy=ar_score,
+                context_precision=cp_score,
                 context_recall=0.0,
-                average_score=df[["faithfulness", "answer_relevancy", "context_precision"]].mean().mean(),
+                average_score=avg_score,
                 latency_avg_ms=avg_latency
             )
             

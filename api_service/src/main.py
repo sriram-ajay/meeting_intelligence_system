@@ -4,8 +4,9 @@ Handles transcript upload, parsing, indexing, and RAG queries.
 """
 
 from typing import Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException, status, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, status, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
+from fastapi.concurrency import run_in_threadpool
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 import uvicorn
@@ -257,7 +258,14 @@ async def run_evaluation(payload: dict):
         if not queries or not responses:
             raise ValidationError("Missing queries or responses in payload")
             
-        result = evaluation_engine.evaluate_batch(queries, responses, meeting_id=meeting_id)
+        # Run long-running Ragas evaluation in a thread pool to avoid blocking the event loop
+        # This prevents "Exception in ASGI application" during 2+ minute evaluation cycles
+        result = await run_in_threadpool(
+            evaluation_engine.evaluate_batch, 
+            queries, 
+            responses, 
+            meeting_id=meeting_id
+        )
         return result
     except Exception as e:
         logger.error("evaluation_api_failed", error=str(e))
