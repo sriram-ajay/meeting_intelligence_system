@@ -29,7 +29,7 @@ The simplest way to run the full stack is via Docker Compose, which handles all 
 
 ## Architectural Overview
 
-The system architecture decouples the frontend delivery from the api logic.
+The system architecture decouples the frontend delivery from the intelligence logic.
 
 ### System Data Flow
 ```mermaid
@@ -60,7 +60,6 @@ graph TD
         ECS --> AI[External LLM APIs]
     end
     class AWS cloud;
-```
 
 ---
 

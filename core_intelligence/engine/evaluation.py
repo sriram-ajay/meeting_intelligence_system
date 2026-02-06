@@ -84,8 +84,7 @@ class EvaluationEngine:
                 metrics=metrics,
                 llm=ragas_llm,
                 embeddings=ragas_embed,
-                run_config=run_config,
-                is_async=False
+                run_config=run_config
             )
             
             df = result.to_pandas()
