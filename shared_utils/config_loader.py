@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     """
     # Application metadata
     app_name: str = "Meeting Intelligence System"  # Configurable via APP_NAME env var
-    app_version: str = "1.1.0-optimized"  # Updated with Hybrid Retrieval V2
+    app_version: str = "1.1.0"  # Updated with Hybrid Retrieval V2
     app_description: str = "RAG-powered meeting intelligence system"  # API description
     api_version: str = "v1"  # API version (v1, v2, etc.) - configurable
     
