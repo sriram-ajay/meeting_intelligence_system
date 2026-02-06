@@ -27,41 +27,113 @@ The simplest way to run the full stack is via Docker Compose, which handles all 
 - REST API (FastAPI): `http://localhost:8000/docs`
 
 
-## Architectural Overview
+## � System Architecture Diagrams
 
-The system architecture decouples the frontend delivery from the intelligence logic.
-
-### System Data Flow
-```mermaid
-graph LR
-    classDef service fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef storage fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef core fill:#dfd,stroke:#333,stroke-width:2px;
-
-    UI[UI Service]:::service --> API[API Gateway]:::service
-    API --> RAG[RAG Engine]:::core
-    RAG --> Guard[Guardrail Layer]:::core
-    API --> Eval[Evaluation Engine]:::core
-    RAG --> LDB[(LanceDB)]:::storage
-    LDB --> Blob[Object Storage / S3]:::storage
-```
-
-### Cloud Production Topology
+### End-to-End Data Flow
 ```mermaid
 graph TD
-    classDef cloud fill:#fff,stroke:#0073bb,stroke-width:2px,stroke-dasharray: 5 5;
-    classDef compute fill:#f7941e,stroke:#333,stroke-width:1px;
-
-    User((User)) --> ALB{Load Balancer}
-    subgraph AWS [AWS Cloud]
-        direction TB
-        ALB --> ECS[ECS Fargate Tasks]:::compute
-        ECS --> S3[(Amazon S3)]
-        ECS --> AI[External LLM APIs]
+    subgraph "Frontend Layer"
+        UI[Streamlit UI]
     end
-    class AWS cloud;
 
----
+    subgraph "Service Layer"
+        API[FastAPI Backend]
+    end
+
+    subgraph "Intelligence Core"
+        RAG[RAG Engine]
+        EV[Evaluation Engine]
+        PR[LLM/Embed Providers]
+    end
+
+    subgraph "Storage Layer"
+        LDB[(LanceDB Vector Store)]
+        MET[(Historical Metrics JSON)]
+    end
+
+    subgraph "AI Services (External)"
+        AWS[AWS Bedrock]
+        OAI[OpenAI API]
+    end
+
+    UI -- "Upload/Query" --> API
+    API -- "Process" --> RAG
+    RAG -- "Vector Search" --> LDB
+    RAG -- "Embeddings/Chat" --> PR
+    PR -- "API Calls" --> AWS
+    PR -- "API Calls" --> OAI
+    UI -- "Run Eval" --> API
+    API -- "Analyze" --> EV
+    EV -- "Judge Score (Ragas)" --> OAI
+    EV -- "Save/Load" --> MET
+    MET -- "Display Metrics" --> UI
+```
+
+**Key Flows:**
+- **Ingestion**: Transcripts are uploaded via Streamlit → FastAPI processes and chunks them → Stored in LanceDB with metadata.
+- **Retrieval**: User queries go through RAG Engine → Vector search retrieves relevant chunks → LLM synthesizes answer.
+- **Evaluation**: Ragas evaluator judges response quality using LLM-as-a-judge → Metrics stored for dashboarding.
+
+### Production AWS Architecture & CI/CD Pipeline
+```mermaid
+graph TD
+    subgraph "CI/CD Pipeline (GitHub Actions)"
+        GH[GitHub Repository]
+        TEST[Pytest & Linting]
+        BUILD[Docker Build]
+        PUSH[Push to ECR]
+        TFRM[Terraform Deploy]
+    end
+
+    subgraph "AWS Cloud (Production)"
+        subgraph "Artifacts"
+            ECR[(Amazon ECR)]
+        end
+
+        subgraph "ECS Fargate Cluster"
+            ECS_API[API Service Container]
+            ECS_UI[UI Service Container]
+        end
+
+        subgraph "Networking"
+            ALB[Application Load Balancer]
+            VPC[VPC / Private Subnets]
+        end
+
+        subgraph "Persistent Storage"
+            S3[Amazon S3 - Transcripts/Data]
+        end
+    end
+
+    subgraph "External AI Services"
+        BEDROCK[AWS Bedrock]
+        OPENAI[OpenAI API]
+    end
+
+    GH --> TEST
+    TEST --> BUILD
+    BUILD --> PUSH
+    PUSH --> ECR
+    GH --> TFRM
+    TFRM --> ECS_API
+    TFRM --> ECS_UI
+    ECR -.-> ECS_API
+    ECR -.-> ECS_UI
+
+    User((End User)) --> ALB
+    ALB --> ECS_UI
+    ECS_UI -- "Internal API Call" --> ECS_API
+    ECS_API --> S3
+    ECS_API -- "Inference/Embed" --> BEDROCK
+    ECS_API -- "Evaluation" --> OPENAI
+```
+
+**Deployment Pipeline: VIEW IN REPOSITORY ACTIONS** 
+- **CI/CD**: GitHub Actions automatically tests, builds Docker images, and pushes to Amazon ECR on every commit.
+- **IaC**: Terraform provisions and manages all AWS resources (VPC, ECS, IAM, S3) with version control.
+- **GitHub OIDC**: Securely authenticates with AWS without long-lived credentials.
+- **Runtime**: End users connect through ALB → UI/API services scale independently on Fargate → Services call AWS Bedrock and OpenAI as needed.
+
 
 ## RAG & LLM Implementation Strategy
 The idea was to demonstrate an end-to-end enterprise scale application.
