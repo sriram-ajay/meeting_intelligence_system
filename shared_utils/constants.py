@@ -47,7 +47,7 @@ class Defaults:
     EMBEDDING_DIMENSION: Final[int] = 1536  # OpenAI small dimension
     BATCH_SIZE: Final[int] = 10
     MAX_RETRIES: Final[int] = 3
-    REQUEST_TIMEOUT: Final[float] = 60.0
+    REQUEST_TIMEOUT: Final[float] = 300.0 # Increased for long-running RAG evaluations
     LOG_LEVEL: Final[str] = "INFO"
     AWS_REGION: Final[str] = "eu-west-2"
 

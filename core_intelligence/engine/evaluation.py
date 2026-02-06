@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import os
 import json
-from ragas import evaluate
+from ragas import evaluate, RunConfig
 from ragas.metrics import (
     faithfulness,
     answer_relevancy,
@@ -72,11 +72,20 @@ class EvaluationEngine:
                 if hasattr(metric, "embeddings"):
                     metric.embeddings = ragas_embed
             
+            # Set sequential execution to prevent NotImplementedError in Ragas 0.2 parallel jobs
+            # and to stay within Bedrock/OpenAI rate limits in production
+            run_config = RunConfig(
+                timeout=120,
+                max_workers=1,
+            )
+            
             result = evaluate(
                 dataset,
                 metrics=metrics,
                 llm=ragas_llm,
-                embeddings=ragas_embed
+                embeddings=ragas_embed,
+                run_config=run_config,
+                is_async=False
             )
             
             df = result.to_pandas()
