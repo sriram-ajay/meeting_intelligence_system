@@ -89,12 +89,16 @@ class RAGEngine:
         # 5. Standard Provider-based Embeddings
         self.embedding_strategy = embedding_strategy or StandardEmbedding(self.embedding_provider._embedding)
         
+        # 6. Check if FTS is supported (LanceDB only supports FTS on local filesystem)
+        self.supports_fts = not self.uri.startswith(("s3://", "gs://", "az://"))
+        
         logger.info(
             "initializing_rag_engine",
             uri=self.uri,
             chunk_strategy=self.chunking_strategy.__class__.__name__,
             retrieval_strategy=self.retrieval_strategy.__class__.__name__,
-            version_update="LATEST_HYBRID_RETRIEVAL_V2"
+            supports_fts=self.supports_fts,
+            version_update="LATEST_HYBRID_RETRIEVAL_V3"
         )
         
         # Configure LlamaIndex global settings with injected providers
@@ -258,7 +262,12 @@ class RAGEngine:
             index = VectorStoreIndex.from_vector_store(self.vector_store)
 
             # Retrieve query engine with a healthy top_k pool
-            query_engine = self.retrieval_strategy.get_query_engine(index, top_k=7, meeting_id=meeting_id)
+            query_engine = self.retrieval_strategy.get_query_engine(
+                index, 
+                top_k=7, 
+                meeting_id=meeting_id,
+                supports_fts=self.supports_fts
+            )
             
             # Execute query
             response = query_engine.query(query_str)

@@ -1,178 +1,137 @@
 # Meeting Intelligence System
 
-A modular, enterprise-grade system for analyzing meeting transcripts using RAG (Retrieval-Augmented Generation).
+Modular system for processing and analyzing meeting transcripts using Retrieval-Augmented Generation (RAG). 
+It is designed to be service-oriented, allows independent scaling of the ingestion and query layers.
 
-## 🏛️ Architecture Overview
-This system follows a **Service-Oriented Architecture** (SOA) with a clean separation of concerns:
+## Getting Started
 
-- **`ui_service` (Streamlit)**: Lean frontend for file uploads and interactive chat.
-- **`api_service` (FastAPI)**: Orchestration layer that handles ingestion requests and queries.
-- **`core_intelligence` (Internal Library)**: Framework-agnostic "Brain" containing the RAG engine, transcript parsers, and domain models.
-- **`shared_utils`**: Cross-cutting concerns like configuration and logging.
-- **LanceDB (Storage)**: A serverless, vector-native database that allows for metadata-aware filtering (e.g., searching by date/speaker) without the overhead of a managed server.
+### Prerequisites
+- Python 3.11+
+- Poetry
+- OpenAI API Key
 
-## � System Architecture Diagrams
-
-### End-to-End Data Flow
-```mermaid
-graph TD
-    subgraph "Frontend Layer"
-        UI[Streamlit UI]
-    end
-
-    subgraph "Service Layer"
-        API[FastAPI Backend]
-    end
-
-    subgraph "Intelligence Core"
-        RAG[RAG Engine]
-        EV[Evaluation Engine]
-        PR[LLM/Embed Providers]
-    end
-
-    subgraph "Storage Layer"
-        LDB[(LanceDB Vector Store)]
-        MET[(Historical Metrics JSON)]
-    end
-
-    subgraph "AI Services (External)"
-        AWS[AWS Bedrock]
-        OAI[OpenAI API]
-    end
-
-    UI -- "Upload/Query" --> API
-    API -- "Process" --> RAG
-    RAG -- "Vector Search" --> LDB
-    RAG -- "Embeddings/Chat" --> PR
-    PR -- "API Calls" --> AWS
-    PR -- "API Calls" --> OAI
-    UI -- "Run Eval" --> API
-    API -- "Analyze" --> EV
-    EV -- "Judge Score (Ragas)" --> OAI
-    EV -- "Save/Load" --> MET
-    MET -- "Display Metrics" --> UI
-```
-
-**Key Flows:**
-- **Ingestion**: Transcripts are uploaded via Streamlit → FastAPI processes and chunks them → Stored in LanceDB with metadata.
-- **Retrieval**: User queries go through RAG Engine → Vector search retrieves relevant chunks → LLM synthesizes answer.
-- **Evaluation**: Ragas evaluator judges response quality using LLM-as-a-judge → Metrics stored for dashboarding.
-
-## �🚀 Quick Setup
-1. **Prerequisites**: Python 3.11+, Poetry, and an OpenAI API Key.
-2. **Install**: `poetry install`
-3. **Configure**: Update `.env` with your `OPENAI_API_KEY`.
-4. **Run via Docker**:
+### Local Installation
+1. **Clone and Install**:
+   ```bash
+   poetry install
+   ```
+2. **Configuration**: Create a `.env` file in the root directory, example file provided:
+   ```bash
+   OPENAI_API_KEY=sk-...
+   ```
+3. **Run Services**:
+   The simplest way to run the full stack is via Docker Compose:
    ```bash
    docker-compose up --build
    ```
-5. **Access**:
-   - UI: `http://localhost:8501`
-   - API: `http://localhost:8000`
 
-## ☁️ Infrastructure as Code (AWS)
-For production deployment, we have included a comprehensive Terraform suite in the `meet_intelli_system_iac/` folder.
-- **Resources**: VPC, ECS (Fargate), S3 (LanceDB Storage), and IAM Roles.
-- **Prefix**: All resources are prefixed with `meeting-intel` for organizational clarity.
-- **S3-Native DB**: The system is designed to use S3 as the primary backend for the vector database, eliminating the need for a persistent server.
+**Service Endpoints**:
+- Interactive UI (Streamlit): `http://localhost:8501`
+- REST API (FastAPI): `http://localhost:8000/docs`
 
-### Production AWS Architecture & CI/CD Pipeline
+---
+
+## Architectural Overview
+
+The system architecture decouples the frontend delivery from the intelligence logic.
+
+### System Data Flow
 ```mermaid
-graph TD
-    subgraph "CI/CD Pipeline (GitHub Actions)"
-        GH[GitHub Repository]
-        TEST[Pytest & Linting]
-        BUILD[Docker Build]
-        PUSH[Push to ECR]
-        TFRM[Terraform Deploy]
-    end
+graph LR
+    classDef service fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef storage fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef core fill:#dfd,stroke:#333,stroke-width:2px;
 
-    subgraph "AWS Cloud (Production)"
-        subgraph "Artifacts"
-            ECR[(Amazon ECR)]
-        end
-
-        subgraph "ECS Fargate Cluster"
-            ECS_API[API Service Container]
-            ECS_UI[UI Service Container]
-        end
-
-        subgraph "Networking"
-            ALB[Application Load Balancer]
-            VPC[VPC / Private Subnets]
-        end
-
-        subgraph "Persistent Storage"
-            S3[Amazon S3 - Transcripts/Data]
-        end
-    end
-
-    subgraph "External AI Services"
-        BEDROCK[AWS Bedrock]
-        OPENAI[OpenAI API]
-    end
-
-    GH --> TEST
-    TEST --> BUILD
-    BUILD --> PUSH
-    PUSH --> ECR
-    GH --> TFRM
-    TFRM --> ECS_API
-    TFRM --> ECS_UI
-    ECR -.-> ECS_API
-    ECR -.-> ECS_UI
-
-    User((End User)) --> ALB
-    ALB --> ECS_UI
-    ECS_UI -- "Internal API Call" --> ECS_API
-    ECS_API --> S3
-    ECS_API -- "Inference/Embed" --> BEDROCK
-    ECS_API -- "Evaluation" --> OPENAI
+    UI[UI Service]:::service --> API[API Gateway]:::service
+    API --> RAG[RAG Engine]:::core
+    RAG --> Guard[Guardrail Layer]:::core
+    API --> Eval[Evaluation Engine]:::core
+    RAG --> LDB[(LanceDB)]:::storage
+    LDB --> Blob[Object Storage / S3]:::storage
 ```
 
-**Deployment Pipeline:**
-- **CI/CD**: GitHub Actions automatically tests, builds Docker images, and pushes to Amazon ECR on every commit.
-- **IaC**: Terraform provisions and manages all AWS resources (VPC, ECS, IAM, S3) with version control.
-- **GitHub OIDC**: Securely authenticates with AWS without long-lived credentials.
-- **Runtime**: End users connect through ALB → UI/API services scale independently on Fargate → Services call AWS Bedrock and OpenAI as needed.
+### Cloud Production Topology
+```mermaid
+graph TD
+    classDef cloud fill:#fff,stroke:#0073bb,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef compute fill:#f7941e,stroke:#333,stroke-width:1px;
 
-## 🧠 Engineering Philosophy & Decisions
+    User((User)) --> ALB{Load Balancer}
+    subgraph AWS [AWS Cloud]
+        direction TB
+        ALB --> ECS[ECS Fargate Tasks]:::compute
+        ECS --> S3[(Amazon S3)]
+        ECS --> AI[External LLM APIs]
+    end
+    class AWS cloud;
+```
 
-### 1. RAG/LLM Approach
-- **LLM**: GPT-4o-mini (Cost-effective and excellent at reasoning over structured transcripts).
-- **Embedding**: `text-embedding-3-small` (Optimized for retrieval tasks).
-- **Vector Store**: **LanceDB**. Chosen for its "Serverless" nature. It stores data in a columnar format (Parquet-based), enabling SQL-like metadata filtering (e.g., "Find meetings between Jan and Feb") which FAISS cannot do natively.
-- **Framework**: **LlamaIndex**. Used for its robust data connectors and advanced query engine capabilities.
+---
 
-### 2. Scalability & Productionization
-To move to production on a hyper-scaler (AWS/GCP/Azure):
-- **Storage**: Swap the local `./data` mount for **S3/Azure Blob Storage** (LanceDB natively supports S3).
-- **Compute**: Deploy the services as independent containers on **ECS/EKS**.
-- **Worker**: Introduce an asynchronous task queue (Celery + Redis) for heavy STT processing or large batch indexing.
-- **Observability**: Integrate **OpenTelemetry** and structured JSON logging (already scaffolded in `shared_utils`).
+## RAG & LLM Implementation Strategy
 
-### 3. Technical Decisions
-- **Modularity**: The `core_intelligence` is a standalone package. This allows it to be reused in Lambda functions or CLI tools without dragging along the FastAPI/Streamlit dependencies.
-- **Metadata-First Ingestion**: Transcripts are parsed into segments with speaker/timestamp metadata, allowing the LLM to provide context-aware answers (e.g., "Who said X?").
-- **Clean Architecture**: Delivery mechanisms (API/UI) are decoupled from deep business logic (RAG/Parsing).
+### Component Selection
+- **LLM**: `gpt-4o-mini`. After testing several models, this provided the best latency-to-reasoning ratio for summarizing long-form meeting transcripts.
+- **Embeddings**: `text-embedding-3-small`. Chosen for its 1536-dim performance and low cost per token.
+- **Vector Store**: **LanceDB**. I selected LanceDB specifically for its serverless integration with S3. This avoids the overhead of managing a persistent vector database cluster while maintaining high performance via Parquet-based storage.
+- **Orchestration**: **LlamaIndex**. Provides a cleaner abstraction for document management and complex retrieval pipelines compared to building from scratch.
 
-## 🛠️ AI Tool Usage
-- Used for rapid scaffolding of boilerplate code (Pydantic models, Dockerfiles).
-- Ensure code quality through manual reviews and architectural alignment.
-- **Do's**: Use AI for unit test generation and regex patterns.
-- **Don'ts**: Never let AI decide the macro-architecture; human-led design is essential for maintainability.
+### Avoiding Cloud Quotas (OpenAI vs. AWS Bedrock)
+If you encounter AWS Service Quotas or Throttling in production, the system is designed to seamlessly switch to OpenAI. This is often the "easier" path for rapid scaling:
+- Set `LLM_PROVIDER=openai` and `EMBED_PROVIDER=openai` in your `.env`.
+- Ensure your `OPENAI_API_KEY` is set.
+- The system will bypass Bedrock and use OpenAI's robust endpoints for both reasoning and semantic search.
 
-## 🔮 Future Enhancements
-Level 1:
--  Github actions -- done
--  Latest RAG techniques (Corrective RAG, RAG Fusion) -- done
--  Display RAGAS metrics on the web. -- done
--  pluggable Gaurdrails, Retrival Strategies, Chunk Stratagies -- done 
-Level 2:
--  use Langchain
--  Extend to PDF and docx (tool call and actions)
--  Integration of Whisper for direct voice-to-transcript analysis. 
--  Multi-modal support for meeting slide analysis.
--  Move to standalone database
--  Prompt memory in db, guard rails, options to config from strict to moderate to slim
--  Make the agentc design template.
+### Retrieval Logic
+- **Semantic Partitioning**: We moved away from fixed-token chunking to semantic-based breakpoints, ensuring speaker turns and topic shifts are preserved.
+- **Hybrid Retrieval**: The engine performs a weighted combination of vector similarity and BM25 keyword matching to ensure specialized terminology in meetings (e.g., project names) isn't missed.
+- **Post-hoc Reranking**: Retreived chunks are passed through a cross-encoder step to prioritize the most relevant context before LLM synthesis.
+- **Guardrails**: A deterministic validation step checks for PII and ensures the LLM doesn't speculate outside the provided transcript context.
+
+---
+
+## Technical Decisions & Standards
+
+### Key Decisions
+1. **Internal Library Pattern**: The `core_intelligence` folder is structured as an internal package. This allows for total decoupling from the web frameworks (FastAPI/Streamlit). We could point a CLI tool or a Lambda function at this core without any modification.
+2. **Schema Safety**: I implemented a `SchemaManager` that runs at startup. It verifies that the LanceDB table structure matches our Pydantic models, preventing runtime errors during ingestion.
+3. **Stateless Operations**: The API is strictly stateless. All persistable state is pushed to LanceDB/S3, allowing the system to scale horizontally across multiple containers.
+
+### Engineering Standards
+- **Validation**: Strict Pydantic models for all data interchanged between services.
+- **Logging**: Implemented `structlog` for JSON-standardized logs to facilitate debugging across multiple services in CloudWatch/Datadog.
+- **Testing**: Focused on integration tests for the RAG pipeline using `Ragas` to measure faithfulness and relevancy.
+- **Trade-offs**: I skipped implementing a full asynchronous task queue (like Celery) for the initial build to reduce deployment complexity, though it would be required for very high-volume ingestion.
+
+---
+
+## AI Tools & Development Retrospective
+
+### Usage of AI Tools
+I utilized AI (specifically LLMs) as a high-speed "pair programmer" for:
+- Writing boilerplate Pydantic schemas and Docker configurations.
+- Generating edge-case test data for the transcript parser.
+- Debugging complex RegEx patterns for segmenting fragmented transcripts.
+
+### Retrospective & Future Directions
+With more time, I would focus on:
+1. **Multi-Modal Integration**: Meetings often include shared screens. Ingesting slide content via OCR/Vision models would significantly improve answer quality for technical meetings.
+2. **Knowledge Graph Expansion**: Moving from a flat vector store to a hybrid Vector+Graph approach would allow the system to track project and person relationships across years of meeting history.
+3. **Audio-Native Processing**: Integrating Whisper directly at the ingestion layer to move from "Transcript Analysis" to "Meeting Analysis".
+
+---
+*Technical Handover Documentation - February 2026*
+
+
+
+
+
+
+
+
+
+
+
+
+
+

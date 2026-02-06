@@ -12,14 +12,26 @@ class RetrievalStrategy(ABC):
     """Abstract base class for retrieval and querying strategies."""
     
     @abstractmethod
-    def get_query_engine(self, index: VectorStoreIndex, top_k: int = 5, meeting_id: Optional[str] = None) -> Any:
+    def get_query_engine(
+        self, 
+        index: VectorStoreIndex, 
+        top_k: int = 5, 
+        meeting_id: Optional[str] = None,
+        supports_fts: bool = True
+    ) -> Any:
         """Create a query engine based on the strategy."""
         pass
 
 class VectorSearchRetriever(RetrievalStrategy):
     """Standard vector similarity search."""
     
-    def get_query_engine(self, index: VectorStoreIndex, top_k: int = 5, meeting_id: Optional[str] = None) -> Any:
+    def get_query_engine(
+        self, 
+        index: VectorStoreIndex, 
+        top_k: int = 5, 
+        meeting_id: Optional[str] = None,
+        supports_fts: bool = True
+    ) -> Any:
         filters = None
         if meeting_id:
             from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
@@ -49,7 +61,13 @@ class HybridRerankRetriever(RetrievalStrategy):
     def __init__(self, llm: Any = None):
         self.llm = llm
 
-    def get_query_engine(self, index: VectorStoreIndex, top_k: int = 7, meeting_id: Optional[str] = None) -> Any:
+    def get_query_engine(
+        self, 
+        index: VectorStoreIndex, 
+        top_k: int = 7, 
+        meeting_id: Optional[str] = None,
+        supports_fts: bool = True
+    ) -> Any:
         filters = None
         if meeting_id:
             from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
@@ -57,12 +75,15 @@ class HybridRerankRetriever(RetrievalStrategy):
                 ExactMatchFilter(key="meeting_id", value=meeting_id)
             ])
 
-        # 1. Setup Hybrid Retriever (Keyword + Vector)
+        # 1. Setup Retriever
+        # Fallback to pure vector search if FTS is unavailable (e.g. S3 storage)
+        mode = VectorStoreQueryMode.HYBRID if supports_fts else VectorStoreQueryMode.DEFAULT
+        
         retriever = index.as_retriever(
             similarity_top_k=top_k * 2, 
             filters=filters,
-            vector_store_query_mode=VectorStoreQueryMode.HYBRID,
-            alpha=0.4 # Slightly favor keyword search to improve Precision on specific terms
+            vector_store_query_mode=mode,
+            alpha=0.4 if supports_fts else None # Alpha only applies to hybrid
         )
         
         # 2. Post-processing pipeline
@@ -88,7 +109,13 @@ class RagFusionStrategy(RetrievalStrategy):
     def __init__(self, llm: Any = None):
         self.llm = llm
 
-    def get_query_engine(self, index: VectorStoreIndex, top_k: int = 10, meeting_id: Optional[str] = None) -> Any:
+    def get_query_engine(
+        self, 
+        index: VectorStoreIndex, 
+        top_k: int = 10, 
+        meeting_id: Optional[str] = None,
+        supports_fts: bool = True
+    ) -> Any:
         filters = None
         if meeting_id:
             from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
@@ -96,11 +123,13 @@ class RagFusionStrategy(RetrievalStrategy):
                 ExactMatchFilter(key="meeting_id", value=meeting_id)
             ])
 
-        # Base retriever with Hybrid mode
+        # Base retriever with fallback for S3
+        mode = VectorStoreQueryMode.HYBRID if supports_fts else VectorStoreQueryMode.DEFAULT
+        
         base_retriever = index.as_retriever(
             similarity_top_k=top_k * 2, # Increase initial pool
             filters=filters,
-            vector_store_query_mode=VectorStoreQueryMode.HYBRID
+            vector_store_query_mode=mode
         )
 
         # Query Fusion Retriever
@@ -131,7 +160,13 @@ class MetaDataFilteredRetriever(RetrievalStrategy):
     def __init__(self, meeting_id: Optional[str] = None):
         self.meeting_id = meeting_id
 
-    def get_query_engine(self, index: VectorStoreIndex, top_k: int = 5, meeting_id: Optional[str] = None) -> Any:
+    def get_query_engine(
+        self, 
+        index: VectorStoreIndex, 
+        top_k: int = 5, 
+        meeting_id: Optional[str] = None,
+        supports_fts: bool = True
+    ) -> Any:
         # Prioritize passed meeting_id over instance one
         m_id = meeting_id or self.meeting_id
         

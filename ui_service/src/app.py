@@ -119,6 +119,34 @@ def nuclear_reset() -> bool:
 
 # Page configuration
 st.set_page_config(page_title=settings.app_name, layout="wide")
+
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    if "password_correct" in st.session_state and st.session_state["password_correct"]:
+        return True
+
+    # Center the login form using columns
+    _, col, _ = st.columns([1, 2, 1])
+    
+    with col:
+        st.markdown("<h2 style='text-align: center;'>🔒 Login Required</h2>", unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Access", use_container_width=True)
+            
+            if submit:
+                if username == "meeting" and password == "zaq1@#Cde3":
+                    st.session_state["password_correct"] = True
+                    st.rerun()
+                else:
+                    st.error("😕 User not known or password incorrect")
+    return False
+
+if not check_password():
+    st.stop()  # Do not continue if check_password is not True
+
 st.title(f"🎙️ {settings.app_name}")
 st.markdown("---")
 
