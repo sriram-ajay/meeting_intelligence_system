@@ -128,7 +128,7 @@ graph TD
     ECS_API -- "Evaluation" --> OPENAI
 ```
 
-**Deployment Pipeline: VIEW IN REPOSITORY ACTIONS** 
+**Deployment Pipeline ==> Current Repo ==>  Actions** 
 - **CI/CD**: GitHub Actions automatically tests, builds Docker images, and pushes to Amazon ECR on every commit.
 - **IaC**: Terraform provisions and manages all AWS resources (VPC, ECS, IAM, S3) with version control.
 - **GitHub OIDC**: Securely authenticates with AWS without long-lived credentials.
