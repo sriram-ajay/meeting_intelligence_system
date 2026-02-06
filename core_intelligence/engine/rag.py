@@ -202,10 +202,13 @@ class RAGEngine:
 
             # Ensure Full Text Search index is created for Hybrid Search
             try:
-                table = self.db.open_table(self.table_name)
-                # LanceDB needs an FTS index for keyword/hybrid search
-                table.create_fts_index("text", replace=True)
-                logger.info("created_fts_index", table=self.table_name)
+                if self.supports_fts:
+                    table = self.db.open_table(self.table_name)
+                    # LanceDB needs an FTS index for keyword/hybrid search
+                    table.create_fts_index("text", replace=True)
+                    logger.info("created_fts_index", table=self.table_name)
+                else:
+                    logger.debug("skipping_fts_index_on_remote_storage")
             except Exception as e:
                 logger.warning("failed_to_create_fts_index", error=str(e))
             

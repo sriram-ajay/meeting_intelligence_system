@@ -47,7 +47,7 @@ class VectorSearchRetriever(RetrievalStrategy):
         return RetrieverQueryEngine.from_args(
             retriever=retriever,
             node_postprocessors=[
-                SimilarityPostprocessor(similarity_cutoff=0.5) # Lowered to increase recall
+                SimilarityPostprocessor(similarity_cutoff=0.3) # Increased recall for naive search
             ]
         )
 
@@ -90,8 +90,9 @@ class HybridRerankRetriever(RetrievalStrategy):
         return RetrieverQueryEngine.from_args(
             retriever=retriever,
             node_postprocessors=[
-                # Strict cutoff to filter out cross-meeting noise
-                SimilarityPostprocessor(similarity_cutoff=0.45),
+                # Loosened cutoff (0.35) for broader recall, 
+                # especially important for S3/Titan embedding variance
+                SimilarityPostprocessor(similarity_cutoff=0.35),
                 LLMRerank(
                     choice_batch_size=5, 
                     top_n=5, # Return fewer, higher-quality results
@@ -148,7 +149,7 @@ class RagFusionStrategy(RetrievalStrategy):
             retriever=fusion_retriever,
             node_postprocessors=[
                 # Precision filter: ensure nodes are actually relevant
-                SimilarityPostprocessor(similarity_cutoff=0.4),
+                SimilarityPostprocessor(similarity_cutoff=0.35),
                 # Final re-ranking of the fused result set
                 LLMRerank(choice_batch_size=5, top_n=min(5, top_k), llm=self.llm)
             ]
