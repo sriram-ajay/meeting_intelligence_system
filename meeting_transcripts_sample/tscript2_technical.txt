@@ -1,0 +1,12 @@
+Meeting: Infrastructure Deep Dive - Kubernetes Migration
+Date: February 5, 2026
+Attendees: Dave (DevOps), Alice (Backend), Bob (SRE)
+
+Dave: Okay, let's talk about the EKS cluster. We're seeing some OOMKilled events on the node-problem-detector.
+Alice: I checked the Prometheus metrics. The PodMonitor isn't picking up the custom metrics from the sidecar.
+Bob: It's likely an RBAC issue. Does the ServiceAccount have the right ClusterRoleBinding?
+Dave: I'll check the YAML. We might need to bump the memory limit to 512Mi.
+Alice: What about the horizontal pod autoscaler? It's flapping because of the startup probe latency.
+Bob: Switch to a gRPC health check instead of the HTTP one. The Istio mesh is introducing some overhead anyway.
+Dave: Done. I'll push the Helm chart update by 2 PM.
+```

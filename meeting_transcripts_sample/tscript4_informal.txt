@@ -1,0 +1,14 @@
+yo, chat about the thing.
+Participants: j-dog, l-money, p-slice
+
+j-dog: u guys see the bug?
+l-money: yea lol its bad
+p-slice: wait what bug?
+j-dog: the login thing. it just loops
+l-money: i think p-slice broke it
+p-slice: no way man, i was eating pizza
+j-dog: lol ok. can we fix it?
+l-money: k, i'll check it in a bit. 
+p-slice: cool. pizza was good btw.
+j-dog: nice.
+```

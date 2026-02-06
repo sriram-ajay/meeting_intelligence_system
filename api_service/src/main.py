@@ -9,10 +9,15 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 import uvicorn
+import nest_asyncio
+
+# Apply nest_asyncio to allow LlamaIndex's RagFusion to run nested event loops in FastAPI
+nest_asyncio.apply()
 
 from core_intelligence.parser.cleaner import TranscriptParser
 from core_intelligence.engine.rag import RAGEngine
-from core_intelligence.schemas.models import QueryRequest, QueryResponse
+from core_intelligence.engine.evaluation import EvaluationEngine
+from core_intelligence.schemas.models import QueryRequest, QueryResponse, EvaluationResult
 from shared_utils.config_loader import get_settings
 from shared_utils.logging_utils import ContextualLogger, get_scoped_logger
 from shared_utils.constants import LogScope, APIEndpoints, Defaults
@@ -43,6 +48,7 @@ try:
     di_container = get_di_container()
     di_container.validate_all_providers()
     rag_engine = RAGEngine(uri=settings.database_uri)
+    evaluation_engine = EvaluationEngine(llm_provider=di_container.get_llm_provider())
     logger.info(
         "api_initialized",
         environment=settings.environment,
@@ -210,7 +216,7 @@ async def query_meeting(request: Request, query_request: QueryRequest) -> QueryR
             )
     
     except AppException as e:
-        logger.warning("query_validation_error", error_code=e.error_code)
+        logger.warning("query_application_error", error_code=e.error_code, error_message=e.message)
         raise HTTPException(
             status_code=e.http_status,
             detail=e.message
@@ -220,6 +226,40 @@ async def query_meeting(request: Request, query_request: QueryRequest) -> QueryR
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_response.get("error", {}).get("message", "Unknown error")
+        )
+
+
+@app.get(APIEndpoints.METRICS)
+async def get_metrics():
+    """Retrieve historical evaluation metrics."""
+    try:
+        return evaluation_engine.get_historical_metrics()
+    except Exception as e:
+        logger.error("metrics_fetch_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.post(APIEndpoints.EVALUATE, response_model=EvaluationResult)
+async def run_evaluation(payload: dict):
+    """Run Ragas evaluation on a set of queries and responses."""
+    try:
+        queries = payload.get("queries", [])
+        responses = payload.get("responses", [])
+        meeting_id = payload.get("meeting_id")
+        
+        if not queries or not responses:
+            raise ValidationError("Missing queries or responses in payload")
+            
+        result = evaluation_engine.evaluate_batch(queries, responses, meeting_id=meeting_id)
+        return result
+    except Exception as e:
+        logger.error("evaluation_api_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 

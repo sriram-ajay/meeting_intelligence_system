@@ -1,0 +1,12 @@
+Meeting: Sales Pitch - Global Logistics Corp
+Date: Feb 11, 2026
+Attendees: Steve (Sales), Maria (Prospect)
+
+Steve: Our system can reduce your transcript analysis time by 90%.
+Maria: We have thousands of hours of audio. Can it scale?
+Steve: Absolutely. We use a serverless vector-native architecture.
+Maria: What about security? We handle sensitive shipping data.
+Steve: We are SOC2 compliant and support end-to-end encryption.
+Maria: Send me a proposal and the pricing tiers.
+Steve: Will do, Maria. Looking forward to our partnership.
+```

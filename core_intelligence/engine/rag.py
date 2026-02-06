@@ -14,6 +14,7 @@ from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
 
 from core_intelligence.providers import EmbeddingProviderBase, LLMProviderBase
 from core_intelligence.schemas.models import MeetingTranscript, QueryResponse, ActionItem
+from core_intelligence.database.manager import SchemaManager
 from shared_utils.config_loader import get_settings
 from shared_utils.di_container import get_di_container
 from shared_utils.logging_utils import ContextualLogger, log_execution
@@ -24,21 +25,34 @@ from shared_utils.constants import DatabaseConfig, LogScope
 logger = ContextualLogger(scope=LogScope.RAG_ENGINE)
 
 
+from core_intelligence.engine.strategies.chunking import ChunkingStrategy, SegmentChunker, SemanticChunker
+from core_intelligence.engine.strategies.retrieval import RetrievalStrategy, RagFusionStrategy
+from core_intelligence.engine.strategies.embedding import EmbeddingStrategy, StandardEmbedding
+from core_intelligence.engine.strategies.query_expansion import QueryExpander, LLMQueryEnhancer, NullExpander
+
 class RAGEngine:
-    """RAG engine with pluggable providers and dependency injection."""
+    """RAG engine with pluggable providers and strategies."""
     
     def __init__(
         self,
         uri: str = None,
         embedding_provider: Optional[EmbeddingProviderBase] = None,
-        llm_provider: Optional[LLMProviderBase] = None
+        llm_provider: Optional[LLMProviderBase] = None,
+        chunking_strategy: Optional[ChunkingStrategy] = None,
+        retrieval_strategy: Optional[RetrievalStrategy] = None,
+        embedding_strategy: Optional[EmbeddingStrategy] = None,
+        query_expander: Optional[QueryExpander] = None
     ):
-        """Initialize RAG engine with optional provider overrides.
+        """Initialize RAG engine with optional provider and strategy overrides.
         
         Args:
             uri: Optional database URI override
-            embedding_provider: Optional custom embedding provider (uses DI if not provided)
-            llm_provider: Optional custom LLM provider (uses DI if not provided)
+            embedding_provider: Optional custom embedding provider
+            llm_provider: Optional custom LLM provider
+            chunking_strategy: Strategy for chunking documents (pluggable)
+            retrieval_strategy: Strategy for querying (pluggable)
+            embedding_strategy: Strategy for embedding handling (pluggable)
+            query_expander: Strategy for query enhancement (pluggable)
         """
         settings = get_settings()
         self.uri = uri or settings.database_uri
@@ -54,17 +68,30 @@ class RAGEngine:
         self.embedding_provider = embedding_provider or di_container.get_embedding_provider()
         self.llm_provider = llm_provider or di_container.get_llm_provider()
         
+        # Strategies configuration - DEFAULTS
+        # 1. Semantic Double-Pass Chunking (SOTA)
+        self.chunking_strategy = chunking_strategy or SemanticChunker(embed_model=self.embedding_provider._embedding)
+        
+        # 2. RAG Fusion + Reciprocal Rank Fusion (SOTA)
+        self.retrieval_strategy = retrieval_strategy or RagFusionStrategy(llm=self.llm_provider._llm)
+        
+        # 3. Use NullExpander because RAG Fusion handles its own expansion
+        self.query_expander = query_expander or NullExpander()
+        
+        # 4. Standard Provider-based Embeddings
+        self.embedding_strategy = embedding_strategy or StandardEmbedding(self.embedding_provider._embedding)
+        
         logger.info(
             "initializing_rag_engine",
             uri=self.uri,
-            embedding_provider=self.embedding_provider.name,
-            llm_provider=self.llm_provider.name
+            chunk_strategy=self.chunking_strategy.__class__.__name__,
+            retrieval_strategy=self.retrieval_strategy.__class__.__name__
         )
         
         # Configure LlamaIndex global settings with injected providers
         try:
             # LlamaIndex expects specific provider types, so we access the underlying instances
-            Settings.embed_model = self.embedding_provider._embedding
+            Settings.embed_model = self.embedding_strategy.get_embed_model()
             Settings.llm = self.llm_provider._llm
             
             logger.info(
@@ -79,22 +106,50 @@ class RAGEngine:
         self.db = lancedb.connect(self.uri)
         self.table_name = DatabaseConfig.TABLE_NAME
         
-        # Check if table exists to decide on mode
+        # Check initial state (will be updated during indexing)
         table_exists = self.table_name in self.db.table_names()
-        mode = DatabaseConfig.MODE_APPEND if table_exists else DatabaseConfig.MODE_OVERWRITE
+        initial_mode = DatabaseConfig.MODE_APPEND if table_exists else DatabaseConfig.MODE_OVERWRITE
         
         try:
+            # Senior Engineering: We enable flat_metadata=True to ensure that 
+            # meeting_id filters are executed as direct column queries in LanceDB.
             self.vector_store = LanceDBVectorStore(
                 uri=self.uri,
                 table_name=self.table_name,
-                mode=mode
+                mode=initial_mode,
+                flat_metadata=True
             )
             self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
-            logger.info("initialized_vector_store", mode=mode, table=self.table_name)
+            self._is_append_mode = (initial_mode == DatabaseConfig.MODE_APPEND)
+            
+            # --- Production Schema Safeguard ---
+            self.schema_manager = SchemaManager(self.db, self.table_name)
+            if not self.schema_manager.validate_or_repair():
+                logger.warning("SCHEMA_RECOVERY_REQUIRED: Contact DevOps or run migration scripts.")
+            
+            logger.info("initialized_vector_store", mode=initial_mode, table=self.table_name)
         except Exception as e:
             logger.error("failed_to_initialize_vector_store", error=str(e))
             raise ProcessingError(f"Vector store initialization failed: {e}", error_type="indexing")
     
+    def _ensure_append_mode(self):
+        """Ensure vector store is in append mode if table exists."""
+        if not self._is_append_mode and self.table_name in self.db.table_names():
+            # Refresh vector store with append mode
+            try:
+                self.vector_store = LanceDBVectorStore(
+                    uri=self.uri,
+                    table_name=self.table_name,
+                    mode=DatabaseConfig.MODE_APPEND,
+                    flat_metadata=True
+                )
+                self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+                self._is_append_mode = True
+                logger.info("switched_to_append_mode")
+            except Exception as e:
+                logger.error("failed_to_switch_to_append_mode", error=str(e))
+                # Don't raise here, try to continue but log the risk
+
     @log_execution(scope=LogScope.RAG_ENGINE)
     def index_transcript(self, transcript: MeetingTranscript) -> str:
         """Index meeting transcript segments as documents.
@@ -109,22 +164,11 @@ class RAGEngine:
             ProcessingError: If indexing fails
         """
         try:
-            logger.info("indexing_transcript", meeting_id=transcript.metadata.meeting_id)
+            logger.info("indexing_transcript", meeting_id=transcript.metadata.meeting_id, strategy=self.chunking_strategy.__class__.__name__)
+            self._ensure_append_mode()
             
-            # Convert segments to documents with metadata
-            documents = []
-            for segment in transcript.segments:
-                doc = Document(
-                    text=segment.content,
-                    metadata={
-                        "meeting_id": transcript.metadata.meeting_id,
-                        "title": transcript.metadata.title,
-                        "speaker": segment.speaker,
-                        "timestamp": segment.timestamp,
-                        "date": transcript.metadata.date.isoformat()
-                    }
-                )
-                documents.append(doc)
+            # Use pluggable chunking strategy
+            documents = self.chunking_strategy.chunk(transcript)
             
             logger.debug(
                 "created_documents",
@@ -137,11 +181,20 @@ class RAGEngine:
                 documents, 
                 storage_context=self.storage_context
             )
+
+            # Ensure Full Text Search index is created for Hybrid Search
+            try:
+                table = self.db.open_table(self.table_name)
+                # LanceDB needs an FTS index for keyword/hybrid search
+                table.create_fts_index("text", replace=True)
+                logger.info("created_fts_index", table=self.table_name)
+            except Exception as e:
+                logger.warning("failed_to_create_fts_index", error=str(e))
             
             logger.info(
                 "indexed_transcript_successfully",
                 meeting_id=transcript.metadata.meeting_id,
-                segment_count=len(transcript.segments)
+                chunk_count=len(documents)
             )
             
             return transcript.metadata.meeting_id
@@ -169,46 +222,76 @@ class RAGEngine:
             QueryError: If query execution fails
         """
         try:
-            logger.info("executing_query", query_str=query_str, meeting_id=meeting_id)
+            # Step 1: Query Enhancement (Super Power)
+            original_query = query_str
+            query_str = self.query_expander.expand(query_str, self.llm_provider._llm)
+            
+            if query_str != original_query:
+                logger.info("query_expanded", original=original_query, expanded=query_str)
+
+            logger.info("executing_query", query_str=query_str, meeting_id=meeting_id, strategy=self.retrieval_strategy.__class__.__name__)
             
             index = VectorStoreIndex.from_vector_store(self.vector_store)
+
+            # Retrieve query engine
+            query_engine = self.retrieval_strategy.get_query_engine(index, top_k=10, meeting_id=meeting_id)
             
-            # Apply filters if meeting_id provided
-            filters = None
-            if meeting_id:
-                filters = MetadataFilters(filters=[
-                    ExactMatchFilter(key="meeting_id", value=meeting_id)
-                ])
-                logger.debug("applied_meeting_filter", meeting_id=meeting_id)
-            
-            query_engine = index.as_query_engine(filters=filters)
+            # Execute query and get response
             response = query_engine.query(query_str)
+            
+            # Log specific retrieved content for debugging
+            if hasattr(response, 'source_nodes') and response.source_nodes:
+                logger.info("retrieval_success", nodes_found=len(response.source_nodes))
+                for idx, sn in enumerate(response.source_nodes[:2]):
+                    logger.debug(f"node_{idx}_content", text=sn.node.get_content()[:100], score=sn.score)
+            else:
+                logger.warning("no_nodes_retrieved", query=query_str)
+                return QueryResponse(
+                    answer="I couldn't find any relevant sections in the transcript to answer that query.",
+                    sources=[],
+                    action_items=[]
+                )
             
             # Extract sources from response nodes
             sources = []
-            for node in response.source_nodes:
-                metadata = getattr(node.node, 'metadata', {})
-                sources.append({
-                    "title": metadata.get('title', 'Unknown'),
-                    "speaker": metadata.get('speaker', 'Unknown'),
-                    "timestamp": metadata.get('timestamp', 'Unknown')
-                })
+            if hasattr(response, 'source_nodes') and response.source_nodes:
+                for node in response.source_nodes:
+                    metadata = getattr(node.node, 'metadata', {})
+                    sources.append({
+                        "title": metadata.get('title', 'Unknown'),
+                        "speaker": metadata.get('speaker', 'Unknown'),
+                        "timestamp": metadata.get('timestamp', 'Unknown')
+                    })
             
             logger.info(
-                "query_completed",
+                "synthesis_completed",
                 sources_count=len(sources),
                 meeting_id=meeting_id
             )
             
+            answer = str(response) if response and str(response).strip() else "I found some relevant parts but couldn't generate a clear answer."
+            
+            logger.info("query_final_answer", answer_length=len(answer), answer_preview=answer[:50])
+            
             return QueryResponse(
-                answer=str(response),
-                sources=[s['title'] for s in sources],
-                action_items=[]  # TODO: Implement structured action item extraction
+                answer=answer,
+                sources=list(set([s['title'] for s in sources])),
+                action_items=[]
             )
         
         except Exception as e:
-            logger.error("query_execution_failed", error=str(e))
+            error_msg = str(e)
+            logger.error("query_execution_failed", error=error_msg)
+            
+            # If it's a "no results" type error from the engine, return a friendly message
+            if "empty" in error_msg.lower() or "not found" in error_msg.lower():
+                return QueryResponse(
+                    answer="I couldn't find any relevant information to answer your query.",
+                    sources=[],
+                    action_items=[]
+                )
+                
             raise QueryError(
-                f"Query execution failed: {e}",
+                f"Query execution failed: {error_msg}",
                 context={"query": query_str, "meeting_id": meeting_id}
             )

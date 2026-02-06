@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # Environment
     environment: str
     
-    model_config = ConfigDict(env_file=".env", case_sensitive=False)
+    model_config = ConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
     @field_validator('embed_provider')
     @classmethod

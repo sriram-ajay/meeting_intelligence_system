@@ -1,0 +1,13 @@
+Meeting: Brainstorming Feature X
+Date: Feb 10, 2026
+Attendees: Team Alpha
+
+- What if we add a voice-activated taco orderer?
+- Too specific. Maybe just general "voice commands"?
+- "Meeting Intelligence System, order me a pizza."
+- Focus on productivity! Auto-summarization is the key.
+- Everyone has that. We need something unique. 
+- "Emotional sentiment analysis of the CEO's jokes."
+- (Laughter)
+- Let's stick to automated action item tracking for now.
+```

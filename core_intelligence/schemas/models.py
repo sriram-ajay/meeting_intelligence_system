@@ -54,8 +54,22 @@ class QueryResponse(BaseModel):
     """Response containing answer, sources, and action items."""
     answer: str
     sources: List[str] = []
+    retrieved_contexts: List[str] = []
     action_items: List[ActionItem] = []
     confidence_score: float = 0.0
+    latency_ms: float = 0.0
+
+
+class EvaluationResult(BaseModel):
+    """Result of a Ragas evaluation."""
+    meeting_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.now)
+    faithfulness: float
+    answer_relevancy: float
+    context_precision: float
+    context_recall: float
+    average_score: float
+    latency_avg_ms: float
 
 
 class JobStatus(BaseModel):

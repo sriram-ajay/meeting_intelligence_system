@@ -1,0 +1,17 @@
+<binary_data_segment>ÿÿÿÿ\x00\x01\x02\x03 ERROR: TRANSCRIPT_CORRUPTED
+TRANSCRIPTION_FAILED_AT_60S
+The system experienced a catastrophic overflow.
+[REDACTED]
+{
+  "raw_data": "unknown",
+  "status": 500
+}
+Wait, is this thing on? 
+
+User: "Can you hear me?"
+Assistant: "I am a coffee machine, I don't listen."
+!@#$%^&*()_+
+[12:00:00] Start
+[11:00:00] End (Time Travel detected)
+EOF
+```
