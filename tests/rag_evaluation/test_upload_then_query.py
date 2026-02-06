@@ -61,8 +61,7 @@ def run_test():
         print(f"Skipping query-based test: {e}")
 
 if __name__ == "__main__":
-    run_test()
-    print(f"Answer: {data.get('answer', '')[:100]}")
-    print(f"Sources: {data.get('sources', [])}")
-except Exception as e:
-    print(f"Error: {e}")
+    try:
+        run_test()
+    except Exception as e:
+        print(f"Error: {e}")

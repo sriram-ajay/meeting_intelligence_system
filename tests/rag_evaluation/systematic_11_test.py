@@ -2,6 +2,9 @@ import requests
 import time
 import subprocess
 import json
+import pytest
+
+pytestmark = pytest.mark.rag_eval
 
 BASE_URL = "http://localhost:8000"
 
@@ -111,5 +114,5 @@ print("=" * 70)
 print("FINAL STATE")
 print("=" * 70)
 final_db_count = get_db_doc_count()
-print(f"Successfully uploaded: {total_uploaded}/{len(test_files)}")
+print(f"Successfully uploaded: {total_uploaded}/{len(test_scenarios)}")
 print(f"DB contains: {final_db_count} total documents")
