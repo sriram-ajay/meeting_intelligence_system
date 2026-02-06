@@ -41,15 +41,15 @@ class VectorSearchRetriever(RetrievalStrategy):
 
 class HybridRerankRetriever(RetrievalStrategy):
     """
-    Advanced strategy: Hybrid search (Keyword + Vector) + LLM Reranking.
-    This 'super powers' retrieval by finding relevant terms AND semantic matches,
-    then uses the LLM to pick the absolute best context.
+    High-Efficiency Hybrid Strategy.
+    Combines Vector Similarity with Keyword Search (FTS) for maximum 
+    coverage, then uses a lightweight re-ranking pass.
     """
     
     def __init__(self, llm: Any = None):
         self.llm = llm
 
-    def get_query_engine(self, index: VectorStoreIndex, top_k: int = 10, meeting_id: Optional[str] = None) -> Any:
+    def get_query_engine(self, index: VectorStoreIndex, top_k: int = 7, meeting_id: Optional[str] = None) -> Any:
         filters = None
         if meeting_id:
             from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
@@ -58,30 +58,31 @@ class HybridRerankRetriever(RetrievalStrategy):
             ])
 
         # 1. Setup Hybrid Retriever (Keyword + Vector)
-        # This allows finding literal terms like "date" or "Bob" reliably
         retriever = index.as_retriever(
-            similarity_top_k=top_k * 3, # Increased pool for reranker
+            similarity_top_k=top_k * 2, 
             filters=filters,
-            vector_store_query_mode=VectorStoreQueryMode.HYBRID
+            vector_store_query_mode=VectorStoreQueryMode.HYBRID,
+            alpha=0.4 # Slightly favor keyword search to improve Precision on specific terms
         )
         
-        # 2. Add LLM Reranker for precision
-        reranker = LLMRerank(
-            choice_batch_size=5, 
-            top_n=top_k, 
-            llm=self.llm
-        )
-        
+        # 2. Post-processing pipeline
         return RetrieverQueryEngine.from_args(
             retriever=retriever,
-            node_postprocessors=[reranker]
+            node_postprocessors=[
+                # Strict cutoff to filter out cross-meeting noise
+                SimilarityPostprocessor(similarity_cutoff=0.45),
+                LLMRerank(
+                    choice_batch_size=5, 
+                    top_n=5, # Return fewer, higher-quality results
+                    llm=self.llm
+                )
+            ]
         )
 
 class RagFusionStrategy(RetrievalStrategy):
     """
-    State-of-the-art strategy using RAG Fusion and Reciprocal Rank Fusion (RRF).
-    It generates multiple versions of the user query to capture different 
-    perspectives and combines the results for maximum recall and precision.
+    Optimized RAG Fusion and Reciprocal Rank Fusion (RRF).
+    Balanced for performance and accuracy.
     """
     
     def __init__(self, llm: Any = None):
@@ -95,31 +96,32 @@ class RagFusionStrategy(RetrievalStrategy):
                 ExactMatchFilter(key="meeting_id", value=meeting_id)
             ])
 
-        # Base retriever (Hybrid)
+        # Base retriever with Hybrid mode
         base_retriever = index.as_retriever(
-            similarity_top_k=top_k,
+            similarity_top_k=top_k * 2, # Increase initial pool
             filters=filters,
             vector_store_query_mode=VectorStoreQueryMode.HYBRID
         )
 
         # Query Fusion Retriever
-        # - num_queries: how many query variations to generate
-        # - mode: redundant retrieval fusion mode (reciprocal_rerank)
+        # Optimized: 2 variations + original = 3 total queries (was 4)
         fusion_retriever = QueryFusionRetriever(
             [base_retriever],
             llm=self.llm,
-            similarity_top_k=top_k,
-            num_queries=4,  # Generate 3 variations + 1 original
-            mode="reciprocal_rerank", # RRF
-            use_async=False, # Switched to False for stability in FastAPI sync context
-            verbose=True
+            similarity_top_k=top_k, 
+            num_queries=3, 
+            mode="reciprocal_rerank",
+            use_async=False, 
+            verbose=False # Reduced noise
         )
 
         return RetrieverQueryEngine.from_args(
             retriever=fusion_retriever,
             node_postprocessors=[
-                # LLM Reranker for precision
-                LLMRerank(choice_batch_size=5, top_n=top_k, llm=self.llm)
+                # Precision filter: ensure nodes are actually relevant
+                SimilarityPostprocessor(similarity_cutoff=0.4),
+                # Final re-ranking of the fused result set
+                LLMRerank(choice_batch_size=5, top_n=min(5, top_k), llm=self.llm)
             ]
         )
 

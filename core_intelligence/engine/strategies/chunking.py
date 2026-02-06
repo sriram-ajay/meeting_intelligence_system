@@ -107,34 +107,33 @@ class recursiveCharacterChunker(ChunkingStrategy):
 
 class SemanticChunker(ChunkingStrategy):
     """
-    State-of-the-art: Semantic Double-Pass Chunking.
-    Combines hierarchical structure with semantic breakpoint detection to ensure
-    that chunks are both contextually rich and semantically coherent.
+    Advanced: Semantic Hybrid Chunking with intelligent context inclusion.
+    Uses semantic breakpoints to find natural topic shifts, while preserving 
+    speaker attribution and metadata without polluting the vector space.
     """
     
-    def __init__(self, embed_model: Any):
-        # Uses LlamaIndex's SemanticSplitter which detects topic shifts
-        # using embedding similarity between sentences.
+    def __init__(self, embed_model: Any, breakpoint_percentile: int = 85):
+        # uses a more balanced percentile (85 instead of 95) for better granularity
         from llama_index.core.node_parser import SemanticSplitterNodeParser
         self.splitter = SemanticSplitterNodeParser(
             buffer_size=1, 
-            breakpoint_percentile_threshold=95, 
+            breakpoint_percentile_threshold=breakpoint_percentile, 
             embed_model=embed_model
         )
     
     def chunk(self, transcript: MeetingTranscript) -> List[Document]:
-        # DOUBLE-PASS STRATEGY:
-        # Pass 1: Build a rich global context header for metadata retrieval
-        header_text = (
-            f"MEETING SUMMARY CONTEXT\n"
-            f"Title: {transcript.metadata.title}\n"
-            f"Participants: {', '.join(transcript.metadata.participants)}\n"
-            f"Date: {transcript.metadata.date.isoformat()}\n"
+        # 1. Summary Context: Optimized for retrieval without keyword pollution
+        # We strip file extensions from title if present
+        clean_title = transcript.metadata.title.split('.')[0].replace('_', ' ').title()
+        participants_summary = f"Participants: {', '.join(transcript.metadata.participants)}"
+        header_brief = (
+            f"Context: {clean_title} ({transcript.metadata.date.date()})\n"
+            f"{participants_summary}\n"
         )
         
-        # Pass 2: Semantic splitting of the main content
+        # 2. Build segments
         full_text = "\n".join([
-            f"[{s.timestamp}] {s.speaker}: {s.content}" 
+            f"{s.speaker}: {s.content}" 
             for s in transcript.segments
         ])
         
@@ -151,33 +150,32 @@ class SemanticChunker(ChunkingStrategy):
         # Parse into semantic nodes
         nodes = self.splitter.get_nodes_from_documents([base_doc])
         
-        # Post-process nodes to inject the header context into EVERY chunk
-        # This is a SOTA technique called "Context Injection"
         final_documents = []
 
-        # 1. Add Analytics Chunk (SOTA recall enhancement)
-        speaker_counts = {}
+        # Add Analytics Chunk (Specialized for metadata queries)
+        # Keeping it separate avoids polluting regular chunks
+        speaker_stats = {}
         for s in transcript.segments:
-            speaker_counts[s.speaker] = speaker_counts.get(s.speaker, 0) + 1
+            speaker_stats[s.speaker] = speaker_stats.get(s.speaker, 0) + 1
         
-        sorted_speakers = sorted(speaker_counts.items(), key=lambda x: x[1], reverse=True)
-        stats_text = f"{header_text}\nMeeting Participation Stats:\n" + "\n".join([f"- {s}: {c} segments" for s, c in sorted_speakers])
-        stats_text += f"\nTotal segments: {len(transcript.segments)}"
+        stats_text = (
+            f"ANALYTICS: {transcript.metadata.title}\n"
+            f"Summary: {transcript.metadata.summary or 'No summary'}\n"
+            f"Participation: " + ", ".join([f"{s} ({c})" for s, c in speaker_stats.items()])
+        )
         
         stats_doc = Document(
             text=stats_text,
-            metadata={
-                **base_doc.metadata,
-                "chunk_type": "analytics"
-            }
+            metadata={**base_doc.metadata, "chunk_type": "analytics"}
         )
         final_documents.append(stats_doc)
 
-        # 2. Add Semantic Chunks
+        # Add Semantic Chunks with "Local Context"
         for node in nodes:
-            # Inject context but wrap back as a Document to avoid LlamaIndex type issues
+            # We only inject the brief header to reduce vector noise
+            # while keeping the chunk semantically grounded.
             doc = Document(
-                text=f"{header_text}\n--- Segment Discussion ---\n{node.get_content()}",
+                text=f"{header_brief}\nContent:\n{node.get_content()}",
                 metadata={
                     **node.metadata,
                     "chunk_type": "semantic"

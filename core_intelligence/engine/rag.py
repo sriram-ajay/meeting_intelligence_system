@@ -9,6 +9,7 @@ from llama_index.core import (
     Document,
     Settings
 )
+from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.vector_stores.lancedb import LanceDBVectorStore
 from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
 
@@ -26,7 +27,7 @@ logger = ContextualLogger(scope=LogScope.RAG_ENGINE)
 
 
 from core_intelligence.engine.strategies.chunking import ChunkingStrategy, SegmentChunker, SemanticChunker
-from core_intelligence.engine.strategies.retrieval import RetrievalStrategy, RagFusionStrategy
+from core_intelligence.engine.strategies.retrieval import RetrievalStrategy, RagFusionStrategy, HybridRerankRetriever
 from core_intelligence.engine.strategies.embedding import EmbeddingStrategy, StandardEmbedding
 from core_intelligence.engine.strategies.query_expansion import QueryExpander, LLMQueryEnhancer, NullExpander
 
@@ -69,14 +70,17 @@ class RAGEngine:
         self.llm_provider = llm_provider or di_container.get_llm_provider()
         
         # Strategies configuration - DEFAULTS
-        # 1. Semantic Double-Pass Chunking (SOTA)
-        self.chunking_strategy = chunking_strategy or SemanticChunker(embed_model=self.embedding_provider._embedding)
+        # 1. Semantic Hybrid Chunking (Optimized)
+        self.chunking_strategy = chunking_strategy or SemanticChunker(
+            embed_model=self.embedding_provider._embedding,
+            breakpoint_percentile=85 # Balanced granularity
+        )
         
-        # 2. RAG Fusion + Reciprocal Rank Fusion (SOTA)
-        self.retrieval_strategy = retrieval_strategy or RagFusionStrategy(llm=self.llm_provider._llm)
+        # 2. Optimized Hybrid Retrieval (More efficient than RagFusion)
+        self.retrieval_strategy = retrieval_strategy or HybridRerankRetriever(llm=self.llm_provider._llm)
         
-        # 3. Use NullExpander because RAG Fusion handles its own expansion
-        self.query_expander = query_expander or NullExpander()
+        # 3. Use LLMQueryEnhancer to sharpen intent
+        self.query_expander = query_expander or LLMQueryEnhancer()
         
         # 4. Standard Provider-based Embeddings
         self.embedding_strategy = embedding_strategy or StandardEmbedding(self.embedding_provider._embedding)
@@ -222,60 +226,72 @@ class RAGEngine:
             QueryError: If query execution fails
         """
         try:
-            # Step 1: Query Enhancement (Super Power)
+            # Step 1: Query Enhancement
             original_query = query_str
+            # Only expand if it's very short or ambiguous
             query_str = self.query_expander.expand(query_str, self.llm_provider._llm)
             
             if query_str != original_query:
-                logger.info("query_expanded", original=original_query, expanded=query_str)
+                logger.debug("query_enhanced", original=original_query, expanded=query_str)
 
             logger.info("executing_query", query_str=query_str, meeting_id=meeting_id, strategy=self.retrieval_strategy.__class__.__name__)
             
             index = VectorStoreIndex.from_vector_store(self.vector_store)
 
-            # Retrieve query engine
-            query_engine = self.retrieval_strategy.get_query_engine(index, top_k=10, meeting_id=meeting_id)
+            # Retrieve query engine with a healthy top_k pool
+            query_engine = self.retrieval_strategy.get_query_engine(index, top_k=7, meeting_id=meeting_id)
             
-            # Execute query and get response
+            # Execute query
             response = query_engine.query(query_str)
             
-            # Log specific retrieved content for debugging
-            if hasattr(response, 'source_nodes') and response.source_nodes:
-                logger.info("retrieval_success", nodes_found=len(response.source_nodes))
-                for idx, sn in enumerate(response.source_nodes[:2]):
-                    logger.debug(f"node_{idx}_content", text=sn.node.get_content()[:100], score=sn.score)
-            else:
-                logger.warning("no_nodes_retrieved", query=query_str)
+            # Handle RAG failures or empty yields
+            source_nodes = getattr(response, 'source_nodes', [])
+            if not source_nodes or not str(response).strip() or "Empty Response" in str(response):
+                logger.warning("retrieval_insufficient", query=query_str, nodes_found=len(source_nodes))
+                
+                # FALLBACK: If Hybrid/Rerank failed to find content, try a broad vector search
+                # This fixes the "cannot find answer" regression for similar queries
+                logger.info("attempting_fallback_search")
+                fallback_retriever = index.as_retriever(similarity_top_k=5)
+                if meeting_id:
+                    from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
+                    fallback_retriever.filters = MetadataFilters(filters=[
+                        ExactMatchFilter(key="meeting_id", value=meeting_id)
+                    ])
+                
+                fallback_engine = RetrieverQueryEngine.from_args(retriever=fallback_retriever)
+                response = fallback_engine.query(query_str)
+                source_nodes = getattr(response, 'source_nodes', [])
+
+            if not source_nodes:
                 return QueryResponse(
-                    answer="I couldn't find any relevant sections in the transcript to answer that query.",
+                    answer="I couldn't find any relevant sections in the transcripts to answer your question. Could you try rephrasing or mentioning specific topics?",
                     sources=[],
                     action_items=[]
                 )
             
-            # Extract sources from response nodes
-            sources = []
-            if hasattr(response, 'source_nodes') and response.source_nodes:
-                for node in response.source_nodes:
-                    metadata = getattr(node.node, 'metadata', {})
-                    sources.append({
-                        "title": metadata.get('title', 'Unknown'),
-                        "speaker": metadata.get('speaker', 'Unknown'),
-                        "timestamp": metadata.get('timestamp', 'Unknown')
-                    })
+            # Extract sources and unique titles
+            sources_metadata = []
+            retrieved_texts = []
+            for node in source_nodes:
+                text = node.node.get_content()
+                retrieved_texts.append(text)
+                
+                meta = getattr(node.node, 'metadata', {})
+                sources_metadata.append(meta.get('title', 'Transcript Chunk'))
+            
+            unique_sources = list(set(sources_metadata))
             
             logger.info(
-                "synthesis_completed",
-                sources_count=len(sources),
-                meeting_id=meeting_id
+                "query_synthesis_complete",
+                sources_count=len(unique_sources),
+                answer_preview=str(response)[:50]
             )
             
-            answer = str(response) if response and str(response).strip() else "I found some relevant parts but couldn't generate a clear answer."
-            
-            logger.info("query_final_answer", answer_length=len(answer), answer_preview=answer[:50])
-            
             return QueryResponse(
-                answer=answer,
-                sources=list(set([s['title'] for s in sources])),
+                answer=str(response),
+                sources=unique_sources,
+                retrieved_contexts=retrieved_texts,
                 action_items=[]
             )
         

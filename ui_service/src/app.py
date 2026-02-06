@@ -246,7 +246,7 @@ with st.sidebar:
     
     uploaded_file = st.file_uploader("Choose a meeting transcript (.txt)", type=["txt"])
     
-    if uploaded_file and st.button("🚀 Index Meeting", use_container_width=True):
+    if uploaded_file and st.button("🚀 Index Meeting", width="stretch"):
         meeting_id = upload_transcript(uploaded_file)
         if meeting_id:
             st.session_state["meeting_id"] = meeting_id
@@ -402,7 +402,7 @@ with tab_monitor:
                 # df is already sorted newest first
                 display_df = df[['timestamp', 'faithfulness', 'answer_relevancy', 'context_precision', 'average_score', 'latency_avg_ms']].head(10).copy()
                 display_df.columns = ['Timestamp', 'Faithfulness', 'Relevancy', 'Precision', 'Avg Score', 'Latency (ms)']
-                st.dataframe(display_df, use_container_width=True)
+                st.dataframe(display_df, width="stretch")
         else:
             st.error(f"❌ Failed to fetch metrics: {response.status_code}")
     except httpx.RequestError as e:
