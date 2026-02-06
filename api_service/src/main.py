@@ -52,7 +52,8 @@ try:
     logger.info(
         "api_initialized",
         environment=settings.environment,
-        database_uri=settings.database_uri
+        database_uri=settings.database_uri,
+        code_status="LATEST_PRODUCTION_VERSION"
     )
 except Exception as e:
     logger.error("api_initialization_failed", error=str(e))

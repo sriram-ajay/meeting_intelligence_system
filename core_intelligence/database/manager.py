@@ -39,12 +39,17 @@ class SchemaManager:
             
             # Critical Production Check: meeting_id isolation
             # If flat_metadata is FALSE, meeting_id will be missing from root
-            if "meeting_id" not in schema_names:
+            required_columns = ["meeting_id", "chunk_type", "speaker", "timestamp", "date", "title"]
+            missing = [col for col in required_columns if col not in schema_names]
+            
+            if missing:
                 logger.error(
                     "DATABASE_SCHEMA_MISMATCH",
-                    missing_column="meeting_id",
-                    cause="Likely created with flat_metadata=False. Run 'python scripts/resync_db.py' to fix."
+                    missing_columns=missing,
+                    cause="Existing table schema does not match the new chunking metadata requirements."
                 )
+                print(f"\n⚠️  SCHEMA MISMATCH DETECTED: Missing columns {missing}")
+                print("⚠️  To fix this, please run: python -m scripts.resync_db")
                 return False
             
             logger.info("database_schema_verified", columns=len(schema_names))

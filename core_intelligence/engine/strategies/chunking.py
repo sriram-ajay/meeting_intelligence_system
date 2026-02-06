@@ -36,7 +36,10 @@ class SegmentChunker(ChunkingStrategy):
             metadata={
                 "meeting_id": transcript.metadata.meeting_id,
                 "title": transcript.metadata.title,
-                "chunk_type": "header"
+                "date": transcript.metadata.date.isoformat(),
+                "chunk_type": "header",
+                "speaker": "System",
+                "timestamp": "00:00"
             }
         )
         documents.append(header_doc)
@@ -55,7 +58,10 @@ class SegmentChunker(ChunkingStrategy):
             metadata={
                 "meeting_id": transcript.metadata.meeting_id,
                 "title": transcript.metadata.title,
-                "chunk_type": "analytics"
+                "date": transcript.metadata.date.isoformat(),
+                "chunk_type": "analytics",
+                "speaker": "System",
+                "timestamp": "00:00"
             }
         )
         documents.append(stats_doc)
@@ -100,7 +106,9 @@ class recursiveCharacterChunker(ChunkingStrategy):
                 "meeting_id": transcript.metadata.meeting_id,
                 "title": transcript.metadata.title,
                 "date": transcript.metadata.date.isoformat(),
-                "chunk_type": "recursive"
+                "chunk_type": "recursive",
+                "speaker": "Multiple",
+                "timestamp": "Mixed"
             }
         )
         return self.splitter.get_nodes_from_documents([doc])
@@ -143,7 +151,9 @@ class SemanticChunker(ChunkingStrategy):
                 "meeting_id": transcript.metadata.meeting_id,
                 "title": transcript.metadata.title,
                 "date": transcript.metadata.date.isoformat(),
-                "chunk_type": "semantic_core"
+                "chunk_type": "semantic_core",
+                "speaker": "Multiple",
+                "timestamp": "System"
             }
         )
         

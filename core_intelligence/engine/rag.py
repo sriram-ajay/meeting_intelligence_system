@@ -93,7 +93,8 @@ class RAGEngine:
             "initializing_rag_engine",
             uri=self.uri,
             chunk_strategy=self.chunking_strategy.__class__.__name__,
-            retrieval_strategy=self.retrieval_strategy.__class__.__name__
+            retrieval_strategy=self.retrieval_strategy.__class__.__name__,
+            version_update="LATEST_HYBRID_RETRIEVAL_V2"
         )
         
         # Configure LlamaIndex global settings with injected providers
@@ -133,7 +134,12 @@ class RAGEngine:
             # --- Production Schema Safeguard ---
             self.schema_manager = SchemaManager(self.db, self.table_name)
             if not self.schema_manager.validate_or_repair():
-                logger.warning("SCHEMA_RECOVERY_REQUIRED: Contact DevOps or run migration scripts.")
+                error_msg = (
+                    "DATABASE_SCHEMA_MISMATCH: The existing database schema is incompatible with the current metadata requirements. "
+                    "This usually happens when changing chunking strategies. Please run 'python -m scripts.resync_db' to reset the database."
+                )
+                logger.error("schema_mismatch_detected", details=error_msg)
+                raise ProcessingError(error_msg, error_type="indexing")
             
             logger.info("initialized_vector_store", mode=initial_mode, table=self.table_name)
         except Exception as e:
