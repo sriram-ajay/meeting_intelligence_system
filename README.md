@@ -21,8 +21,8 @@ The simplest way to run the full stack is via Docker Compose, which handles all 
    docker-compose up --build
    ```
 3. **Environment**: Ensure your `.env` is configured as described above.
-                  SAMPLE DOCS
-                  -----------
+4. SAMPLE Transcripts
+   -----------------
 *** meeting_intelligence_system\meeting_transcripts_sample **** 
 
 **Service Endpoints**:
