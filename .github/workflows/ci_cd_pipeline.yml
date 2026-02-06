@@ -65,7 +65,8 @@ jobs:
           export OPENAI_API_KEY=sk-dummy-key-for-tests
           export DATABASE_URI=./data/test_lancedb
           export ENVIRONMENT=development
-          poetry run pytest tests/ -v
+          # Skip integration tests that require a live server or LLM keys in CI
+          poetry run pytest tests/ -v -m "not integration and not rag_eval"
 
   image-verify:
     name: 2. Image Verification & Push to ECR

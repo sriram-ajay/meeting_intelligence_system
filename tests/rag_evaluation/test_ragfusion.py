@@ -4,7 +4,10 @@ from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.postprocessor import LLMRerank
 import lancedb
+import pytest
 from shared_utils.di_container import get_di_container
+
+pytestmark = pytest.mark.rag_eval
 
 # Setup
 uri = 'data/lancedb'
