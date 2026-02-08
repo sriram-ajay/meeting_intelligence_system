@@ -267,6 +267,7 @@ The current deployment works for a demo, but there are real gaps before this is 
 - The ALB is HTTP-only. Production needs HTTPS with certificates and Route 53 for a proper domain.
 - Ideally use cloudFront or similar cloud native service with inbuilt tools to protect from DDOS, SQL injection etc...
 - The Streamlit UI has a hardcoded password. In production this should be behind Cognito or an IdP.
+- OIDC for CI/CD — GitHub Actions uses OIDC federation instead of long-lived AWS credentials (no static secrets)
 - I'm using Secrets Manager for the OpenAI key. But, the IAM policies could be tightened rather than fairly broad S3 and DynamoDB access).
 
 **Observability:**
