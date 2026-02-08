@@ -445,7 +445,7 @@ I treated Copilot as a very fast engineer who needs code review. I'd describe th
 3. **Automated integration tests with LocalStack**: The Docker Compose already has LocalStack. I'd add a CI job that runs `docker-compose up`, uploads a transcript, waits for READY, queries it, and verifies citations. Right now this testing is manual, which is obviously not sustainable.
 4. **Multi-environment promotion pipeline**: Set up separate dev/staging/prod stacks using Terraform workspaces or per-environment state files, with ephemeral dev environments that tear down after use. The Terraform is already parameterised — it's mostly a matter of wiring the CI/CD to promote through environments with approval gates
 6. **Operational Dashboad setup**
-7. **Spend more time planning the initial setup or Given the speed of development and deployment spend more time on rapid iterations before settling on a final stack**
+7. **Spend more time planning the initial setup**
 
 **Beyond that:**
 - Proper HTTPS with ACM + Route 53
