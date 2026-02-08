@@ -12,6 +12,10 @@ class Environment(str, Enum):
     DEVELOPMENT = "development"
     STAGING = "staging"
     PRODUCTION = "production"
+    # Short aliases (v2 config accepts dev|stage|prod)
+    DEV = "dev"
+    STAGE = "stage"
+    PROD = "prod"
 
 
 class EmbeddingProvider(str, Enum):
@@ -64,25 +68,31 @@ class DatabaseConfig:
 class LogScope:
     """Standardized logging scope names."""
     CONFIG = "config_loader"
-    RAG_ENGINE = "rag_engine"
     API = "api"
     UI = "ui"
     PARSER = "transcript_parser"
     VALIDATION = "validation"
     ERROR_HANDLER = "error_handler"
     MONITORING = "monitoring"
+    PROVIDER = "provider"
+    # v2 scopes
+    INGESTION = "ingestion"
+    QUERY_SERVICE = "query_service"
+    WORKER = "worker"
+    ADAPTER = "adapter"
+    ORCHESTRATION = "orchestration"
 
 
 # API endpoints and paths
 class APIEndpoints:
     """API route definitions."""
     HEALTH = "/health"
-    UPLOAD = "/api/upload"
-    QUERY = "/api/query"
-    MEETINGS = "/api/meetings"
-    MEETINGS_BY_ID = "/api/meetings/{meeting_id}"
-    METRICS = "/api/metrics"
-    EVALUATE = "/api/evaluate"
+    MEETINGS = "/api/v2/meetings"
+    STATUS = "/api/v2/status/{meeting_id}"
+    V2_UPLOAD = "/api/v2/upload"
+    V2_QUERY = "/api/v2/query"
+    V2_EVALUATE = "/api/v2/evaluate"
+    V2_EVAL_HISTORY = "/api/v2/eval/history"
 
 
 # Error codes
@@ -96,6 +106,10 @@ class ErrorCode(str, Enum):
     QUERY_FAILED = "QUERY_FAILED"
     INVALID_INPUT = "INVALID_INPUT"
     EXTERNAL_SERVICE_ERROR = "EXTERNAL_SERVICE_ERROR"
+    # v2 error codes
+    INGESTION_FAILED = "INGESTION_FAILED"
+    STORAGE_ERROR = "STORAGE_ERROR"
+    WORKER_ERROR = "WORKER_ERROR"
 
 
 # Feature flags

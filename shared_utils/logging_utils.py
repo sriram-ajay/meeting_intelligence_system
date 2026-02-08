@@ -63,7 +63,7 @@ def log_execution(scope: str = LogScope.API, level: str = LogLevel.INFO.value):
         level: Log level (INFO, DEBUG, WARNING, ERROR)
     
     Example:
-        @log_execution(scope=LogScope.RAG_ENGINE)
+        @log_execution(scope=LogScope.PROVIDER)
         def process_document(doc):
             return doc.upper()
     """
@@ -127,7 +127,7 @@ def log_with_context(
             
             try:
                 result = func(*args, **kwargs)
-                logger.log(level.lower(), f"{msg}_completed")
+                getattr(logger, level.lower())(f"{msg}_completed")
                 return result
             except Exception as e:
                 logger.error(f"{msg}_failed", error=str(e))

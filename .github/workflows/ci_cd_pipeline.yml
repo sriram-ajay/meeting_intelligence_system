@@ -2,9 +2,11 @@ name: Product Pipeline (CI/CD)
 
 on:
   push:
-    branches: ["**"]
+    branches:
+      - meeting_intelligence_v1
   pull_request:
-    branches: ["**"]
+    branches:
+      - meeting_intelligence_v1
   workflow_dispatch:
 
 env:

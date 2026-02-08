@@ -33,11 +33,20 @@ def get_secret_from_aws(secret_name: str, region: str = "eu-west-2") -> str:
 
 
 class Settings(BaseSettings):
-    """Application configuration with environment variable precedence.
-    
-    Precedence: 1) Environment Variables > 2).env file > 3) Class defaults (required fields have no defaults)
-    
-    All configuration is externalized - no hardcoded defaults except for optional fields.
+    """Application configuration loaded from environment variables.
+
+    Precedence (highest wins):
+        1. Environment variables (e.g. ``export LLM_PROVIDER=bedrock``)
+        2. ``.env`` file in the project root
+        3. Class defaults below (only for optional fields)
+
+    Required fields (no default) will raise a validation error at startup
+    if not set. This is intentional — fail fast rather than running with
+    stale defaults.
+
+    V2 settings (s3_*, dynamodb_*, ecs_*) are all optional with empty-string
+    defaults. This lets the same Settings class work for local dev (where
+    these are unset) and production (where they come from ECS task env).
     """
     # Application metadata
     app_name: str = "Meeting Intelligence System"  # Configurable via APP_NAME env var
@@ -62,12 +71,45 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     openai_secret_name: Optional[str] = None
     
-    # Database
-    database_uri: str
+    # Database (v1 — deprecated, kept for backward compat)
+    database_uri: str = ""
     
     # Environment
     environment: str
     
+    # --- V2 settings (all optional with sensible defaults) ---
+
+    # AWS region
+    aws_region: str = "eu-west-2"
+
+    # AWS endpoint override (set to LocalStack URL for local dev, empty for real AWS)
+    aws_endpoint_url: str = ""
+
+    # S3 artifact storage
+    s3_raw_bucket: str = ""
+    s3_raw_prefix: str = "raw"
+    s3_derived_bucket: str = ""
+    s3_derived_prefix: str = "derived"
+
+    # DynamoDB metadata
+    dynamodb_table_name: str = "MeetingsMetadata"
+
+    # S3 Vectors
+    s3_vectors_bucket: str = ""
+    s3_vectors_index_name: str = ""
+
+    # Evaluation
+    enable_eval: bool = False
+    eval_last_n: int = 10
+    eval_s3_prefix: str = "derived/evaluations"
+
+    # ECS worker (for RunTask trigger from API)
+    ecs_cluster_name: str = ""
+    ecs_worker_task_def: str = ""
+    ecs_worker_subnets: str = ""  # comma-separated
+    ecs_worker_security_group: str = ""
+    ecs_worker_container_name: str = "worker"
+
     model_config = ConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
     @field_validator('embed_provider')
@@ -91,11 +133,17 @@ class Settings(BaseSettings):
     @field_validator('environment')
     @classmethod
     def validate_environment(cls, v: str) -> str:
-        """Validate environment is recognized."""
+        """Validate environment is recognized.
+        
+        Accepts both long (development/staging/production) and
+        short (dev/stage/prod) forms.  Stores the long form.
+        """
+        _short_map = {"dev": "development", "stage": "staging", "prod": "production"}
+        normalised = _short_map.get(v.lower(), v.lower())
         valid_envs = {"development", "staging", "production"}
-        if v.lower() not in valid_envs:
-            raise ValueError(f"environment must be one of {valid_envs}, got {v}")
-        return v.lower()
+        if normalised not in valid_envs:
+            raise ValueError(f"environment must be one of {valid_envs} (or dev/stage/prod), got {v}")
+        return normalised
     
     def get_api_base_url(self) -> str:
         """Get full API base URL constructed from host, port and protocol.
@@ -114,16 +162,23 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Load and cache application settings.
-    
-    If OpenAI provider is configured and OPENAI_SECRET_NAME is provided,
-    fetches API key from AWS Secrets Manager.
-    
+    """Load and cache application settings (singleton via lru_cache).
+
+    On first call:
+        1. Loads Settings from env vars / .env file
+        2. If OpenAI is needed (for embeddings, LLM, or evaluation),
+           fetches the API key from AWS Secrets Manager using the
+           secret name in OPENAI_SECRET_NAME
+        3. Sets OPENAI_API_KEY in os.environ so that third-party
+           libraries (Ragas, LangChain) pick it up automatically
+
+    Subsequent calls return the cached instance (no re-validation).
+
     Returns:
-        Validated Settings instance
-    
+        Validated Settings instance.
+
     Raises:
-        ValueError: If required settings are missing or invalid
+        ValidationError: If required settings are missing or invalid.
     """
     settings = Settings()
     
@@ -150,7 +205,6 @@ def get_settings() -> Settings:
         bedrock_region=settings.bedrock_region,
         llm_model_id=settings.bedrock_llm_model_id,
         embed_provider=settings.embed_provider,
-        database_uri=settings.database_uri
     )
     
     return settings
