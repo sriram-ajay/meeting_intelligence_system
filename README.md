@@ -55,12 +55,12 @@ poetry run pytest tests/ -v -m "not integration and not rag_eval"
 Both V1 and V2 are live on the same ALB with path-based routing:
 
 **V2 (this codebase):**
-- UI: `http://meeting-intel-alb-63668379.eu-west-2.elb.amazonaws.com/v2/`
-- API: private — accessible only via Cloud Map within the VPC
+- **UI: `http://meeting-intel-alb-63668379.eu-west-2.elb.amazonaws.com/v2/`**
+- **API: private — accessible only via Cloud Map within the VPC**
 
 **V1 (original):**
-- UI: `http://meeting-intel-alb-63668379.eu-west-2.elb.amazonaws.com/`
-- API: `http://meeting-intel-alb-63668379.eu-west-2.elb.amazonaws.com/api/`
+- **UI: `http://meeting-intel-alb-63668379.eu-west-2.elb.amazonaws.com/`**
+- **API: `http://meeting-intel-alb-63668379.eu-west-2.elb.amazonaws.com/api/`**
 
 V2 infrastructure is managed via Terraform in `meet_intelli_system_iac_v2/`. 
 CI/CD is handled by GitHub Actions (`.github/workflows/v2_deploy.yml`).
