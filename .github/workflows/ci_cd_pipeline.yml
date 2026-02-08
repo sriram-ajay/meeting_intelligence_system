@@ -2,13 +2,11 @@ name: Product Pipeline (CI/CD)
 
 on:
   push:
-    branches-ignore:
-      - v2
-      - "v2/**"
-      - meeting_intelligence_v2
+    branches:
+      - meeting_intelligence_v1
   pull_request:
     branches:
-      - main
+      - meeting_intelligence_v1
   workflow_dispatch:
 
 env:

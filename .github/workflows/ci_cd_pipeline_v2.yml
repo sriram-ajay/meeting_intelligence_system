@@ -3,11 +3,13 @@ name: V2 Pipeline (CI/CD)
 on:
   push:
     branches:
+      - main
       - v2
       - "v2/**"
       - meeting_intelligence_v2
   pull_request:
     branches:
+      - main
       - v2
       - meeting_intelligence_v2
   workflow_dispatch:
