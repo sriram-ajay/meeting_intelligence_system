@@ -279,6 +279,13 @@ resource "aws_service_discovery_service" "api" {
   health_check_custom_config {
   }
 
+  # Prevent Terraform from trying to recreate this when instances are registered.
+  # The health_check_custom_config block triggers a force-replacement on import,
+  # but AWS won't delete a service with active ECS instances.
+  lifecycle {
+    ignore_changes = [health_check_custom_config]
+  }
+
   tags = {
     Name    = "${var.project_name}-api-discovery"
     Project = var.project_name
@@ -315,7 +322,7 @@ resource "aws_ecs_service" "api" {
     registry_arn = aws_service_discovery_service.api[0].arn
   }
 
-  depends_on = [aws_lb_listener_rule.v2_api]
+  depends_on = [aws_lb_target_group.v2_api]
 
   tags = {
     Name    = "${var.project_name}-api-service"

@@ -110,9 +110,14 @@ class GuardrailService:
             response = self._llm.generate(prompt)
             response_text = response.strip()
 
+            # Parse the LLM's structured output. We look for "VERDICT: PASSED"
+            # as a substring rather than parsing JSON, because the LLM
+            # occasionally adds extra text around the verdict.
             is_pass = "VERDICT: PASSED" in response_text
 
-            # Extract the safe response if the LLM provided one.
+            # Extract the corrected answer if the LLM flagged hallucination.
+            # The LLM is instructed to output "SAFE_RESPONSE: <corrected text>"
+            # which we split on to get the replacement answer.
             safe_answer = answer
             if "SAFE_RESPONSE:" in response_text:
                 safe_answer = response_text.split("SAFE_RESPONSE:")[-1].strip()

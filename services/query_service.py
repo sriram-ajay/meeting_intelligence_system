@@ -213,7 +213,16 @@ class QueryService:
         results,
         chunk_map_index: Dict[str, ChunkMapEntry],
     ) -> List[Citation]:
-        """Map vector results back to chunk-map metadata for citations."""
+        """Map vector search results back to human-readable citations.
+
+        For each retrieved chunk, looks up its chunk_id in the chunk_map
+        to get speaker name, timestamps, and a text snippet. The chunk_map
+        is built during ingestion and stored as chunk_map.json in S3.
+
+        If a chunk_id isn't found in the map (e.g. chunk_map download
+        failed), we fall back to whatever metadata the vector record has.
+        This degrades citation quality but doesn't block the answer.
+        """
         citations: List[Citation] = []
         for r in results:
             entry = chunk_map_index.get(r.chunk_id)

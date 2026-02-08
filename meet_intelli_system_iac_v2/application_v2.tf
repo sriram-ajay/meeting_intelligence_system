@@ -4,8 +4,8 @@
 # V1 API rule:     priority 10, paths: /api/*, /health, /docs, /openapi.json
 # V1 default:      forward to V1 UI target group
 #
-# V2 API rule:     priority 5  (evaluated BEFORE V1's 10), paths: /api/v2/*
-# V2 UI rule:      priority 6, paths: /v2/ui/* (optional direct access)
+# V2 API:          PRIVATE — no listener rule, reachable only via Cloud Map
+# V2 UI rule:      priority 6, paths: /v2/* (only public V2 route)
 # V1 default:      UNCHANGED — still forwards to V1 UI
 #
 # Cutover: later change default action from V1 UI → V2 UI (not in this file)
@@ -61,30 +61,11 @@ resource "aws_lb_target_group" "v2_ui" {
   }
 }
 
-# --- V2 API Listener Rule (priority 5 — before V1's priority 10) ---
-# Routes /api/v2/* to V2 API service
-
-resource "aws_lb_listener_rule" "v2_api" {
-  count        = var.deploy_app ? 1 : 0
-  listener_arn = data.aws_lb_listener.http.arn
-  priority     = 5
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.v2_api[0].arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/api/v2/*"]
-    }
-  }
-
-  tags = {
-    Name    = "${var.project_name}-api-rule"
-    Project = var.project_name
-  }
-}
+# --- V2 API is PRIVATE — no ALB listener rule ---
+# The API is only reachable via Cloud Map (api.meeting-intel-v2.local:8000).
+# The target group is kept for ALB-based health monitoring, but no external
+# traffic is routed to the API.
+# Removed: aws_lb_listener_rule.v2_api (was priority 5, path /api/v2/*)
 
 # --- V2 UI Listener Rule (priority 6 — V2 UI accessible at /v2/*) ---
 # During transition, V2 UI at /v2/* while V1 UI stays as default

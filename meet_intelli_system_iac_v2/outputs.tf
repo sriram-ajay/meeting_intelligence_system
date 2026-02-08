@@ -77,9 +77,9 @@ output "alb_dns" {
   value       = data.aws_lb.main.dns_name
 }
 
-output "v2_api_url" {
-  description = "V2 API base URL"
-  value       = "http://${data.aws_lb.main.dns_name}/api/v2"
+output "v2_api_internal_dns" {
+  description = "V2 API internal URL (private, via Cloud Map)"
+  value       = "http://api.${var.project_name}.local:8000"
 }
 
 output "v2_ui_url" {

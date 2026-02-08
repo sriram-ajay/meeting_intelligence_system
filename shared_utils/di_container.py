@@ -1,6 +1,18 @@
 """
 Dependency injection container for managing application dependencies.
-Centralizes provider creation and lifecycle management.
+
+Centralises all provider and adapter creation. Every service and adapter
+is a lazy singleton — created on first access, then reused for the
+lifetime of the process. This ensures:
+    - One boto3 client per adapter (avoids reconnecting on every request)
+    - One embedding/LLM provider per process
+    - Services get their dependencies injected at construction, not
+      imported at module level, so tests can swap them out easily
+
+Usage:
+    container = get_di_container()
+    query_svc = container.get_query_service()   # creates all deps if needed
+    result = query_svc.query("What was decided?")
 
 V2 additions: adapter singletons (S3, DynamoDB, S3Vectors) and IngestionService.
 """
@@ -182,8 +194,14 @@ class DIContainer:
     def get_vector_store(self):
         """Get or create vector store adapter (lazy singleton).
 
-        Uses InMemoryVectorStoreAdapter when S3_VECTORS_BUCKET is empty
-        (local dev / LocalStack), and S3VectorsVectorStoreAdapter otherwise.
+        Environment-aware: checks S3_VECTORS_BUCKET from config.
+        - Empty string → local dev or CI → InMemoryVectorStoreAdapter
+          (brute-force cosine search, no persistence across restarts)
+        - Non-empty → production → S3VectorsVectorStoreAdapter
+          (real ANN search against AWS S3 Vectors service)
+
+        This is how the ports-and-adapters pattern pays off: the services
+        never know which adapter they're talking to.
         """
         if self._vector_store is None:
             settings = get_settings()

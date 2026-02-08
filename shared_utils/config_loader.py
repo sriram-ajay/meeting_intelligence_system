@@ -33,11 +33,20 @@ def get_secret_from_aws(secret_name: str, region: str = "eu-west-2") -> str:
 
 
 class Settings(BaseSettings):
-    """Application configuration with environment variable precedence.
-    
-    Precedence: 1) Environment Variables > 2).env file > 3) Class defaults (required fields have no defaults)
-    
-    All configuration is externalized - no hardcoded defaults except for optional fields.
+    """Application configuration loaded from environment variables.
+
+    Precedence (highest wins):
+        1. Environment variables (e.g. ``export LLM_PROVIDER=bedrock``)
+        2. ``.env`` file in the project root
+        3. Class defaults below (only for optional fields)
+
+    Required fields (no default) will raise a validation error at startup
+    if not set. This is intentional — fail fast rather than running with
+    stale defaults.
+
+    V2 settings (s3_*, dynamodb_*, ecs_*) are all optional with empty-string
+    defaults. This lets the same Settings class work for local dev (where
+    these are unset) and production (where they come from ECS task env).
     """
     # Application metadata
     app_name: str = "Meeting Intelligence System"  # Configurable via APP_NAME env var
@@ -153,16 +162,23 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Load and cache application settings.
-    
-    If OpenAI provider is configured and OPENAI_SECRET_NAME is provided,
-    fetches API key from AWS Secrets Manager.
-    
+    """Load and cache application settings (singleton via lru_cache).
+
+    On first call:
+        1. Loads Settings from env vars / .env file
+        2. If OpenAI is needed (for embeddings, LLM, or evaluation),
+           fetches the API key from AWS Secrets Manager using the
+           secret name in OPENAI_SECRET_NAME
+        3. Sets OPENAI_API_KEY in os.environ so that third-party
+           libraries (Ragas, LangChain) pick it up automatically
+
+    Subsequent calls return the cached instance (no re-validation).
+
     Returns:
-        Validated Settings instance
-    
+        Validated Settings instance.
+
     Raises:
-        ValueError: If required settings are missing or invalid
+        ValidationError: If required settings are missing or invalid.
     """
     settings = Settings()
     

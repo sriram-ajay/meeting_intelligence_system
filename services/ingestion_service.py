@@ -52,11 +52,19 @@ def _chunk_segments(
     max_tokens: int = 512,
     overlap: int = 1,
 ) -> List[Dict]:
-    """Sliding-window chunking over normalised segments.
+    """Sliding-window chunking over normalised transcript segments.
 
-    Each chunk collects consecutive segments up to *max_tokens*
-    (estimated as ``len(text.split())``).  Adjacent chunks share
-    *overlap* trailing segments for context continuity.
+    Groups consecutive segments into chunks up to *max_tokens* (estimated
+    via whitespace split, not a real tokenizer — close enough for chunking).
+    Adjacent chunks share *overlap* trailing segments so context isn't lost
+    at chunk boundaries (e.g. a question in chunk A and answer in chunk B).
+
+    Important behaviour:
+        - A segment is the atomic unit. We never split mid-segment.
+        - If a single segment exceeds *max_tokens* on its own, it still
+          becomes one chunk (the token limit is a soft cap, not a hard cut).
+        - The ``[timestamp] Speaker: text`` format is reconstructed from
+          the structured fields, so the format is always consistent.
 
     Returns a list of dicts with keys:
         chunk_id, text, timestamp_start, timestamp_end, speaker, speakers.
@@ -65,15 +73,19 @@ def _chunk_segments(
         return []
 
     chunks: List[Dict] = []
-    i = 0
+    i = 0  # Index of the first segment in the current chunk
 
     while i < len(segments):
         token_count = 0
         batch: List[NormalizedSegment] = []
 
+        # Greedily collect segments until we exceed the token budget.
         j = i
         while j < len(segments):
             seg_tokens = len(segments[j].text.split())
+            # "and batch" means: if the batch is empty, always include the
+            # first segment even if it alone exceeds max_tokens. This
+            # prevents an infinite loop on oversized segments.
             if token_count + seg_tokens > max_tokens and batch:
                 break
             batch.append(segments[j])
@@ -81,8 +93,10 @@ def _chunk_segments(
             j += 1
 
         if not batch:
-            break
+            break  # Safety: shouldn't happen, but avoids infinite loop
 
+        # Reconstruct the [timestamp] Speaker: text format for each segment.
+        # This is what gets embedded and what the LLM sees as context.
         text = "\n".join(
             f"[{s.timestamp}] {s.speaker}: {s.text}" for s in batch
         )
@@ -97,7 +111,9 @@ def _chunk_segments(
                 "speakers": speakers,
             }
         )
-        # Advance by (batch size - overlap), but always at least 1
+        # Slide the window forward. We keep `overlap` trailing segments
+        # so the next chunk starts with them for context continuity.
+        # Always advance by at least 1 to avoid an infinite loop.
         advance = max(len(batch) - overlap, 1)
         i += advance
 
@@ -295,20 +311,26 @@ class IngestionService:
     def _normalise(
         transcript: MeetingTranscript, meeting_id: str
     ) -> NormalizedTranscript:
-        """Convert v1 MeetingTranscript to v2 NormalizedTranscript."""
+        """Convert v1 MeetingTranscript to v2 NormalizedTranscript.
+
+        V1's TranscriptParser produces MeetingTranscript with ``TranscriptSegment``
+        objects (speaker, timestamp, content). V2 services expect
+        ``NormalizedSegment`` (speaker, timestamp, text). This bridges the two
+        so we can reuse the parser without modifying it.
+        """
         segments = [
             NormalizedSegment(
                 timestamp=seg.timestamp,
                 speaker=seg.speaker,
-                text=seg.content,
+                text=seg.content,  # v1 calls it 'content', v2 calls it 'text'
             )
             for seg in transcript.segments
         ]
         return NormalizedTranscript(
             meeting_id=meeting_id,
             title=transcript.metadata.title,
-            date=transcript.metadata.date.isoformat()[:10],
+            date=transcript.metadata.date.isoformat()[:10],  # ISO date only, no time
             participants=transcript.metadata.participants,
             segments=segments,
-            raw_text_hash="",  # filled in caller
+            raw_text_hash="",  # Hash is set by the caller (ingest method)
         )

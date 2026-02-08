@@ -73,10 +73,12 @@ class MeetingRecord(BaseModel):
 
 
 class ChunkMapEntry(BaseModel):
-    """Maps a chunk_id to its source location and snippet.
+    """Maps a chunk_id to its source location and a text snippet.
 
-    Stored as chunk_map.json in S3 derived prefix.
-    Used for citation assembly in query responses.
+    Built during ingestion and stored as ``chunk_map.json`` in the S3
+    derived prefix. Used by QueryService to assemble citations — when
+    a vector search returns a chunk_id, we look it up here to get the
+    speaker name, timestamp range, and a snippet for the UI.
     """
 
     chunk_id: str
@@ -84,18 +86,23 @@ class ChunkMapEntry(BaseModel):
     timestamp_start: str
     timestamp_end: str
     speaker: str
-    snippet: str
-    raw_s3_uri: str
+    snippet: str  # First 200 chars of the chunk text
+    raw_s3_uri: str  # Points back to the original uploaded transcript
 
 
 class VectorRecord(BaseModel):
-    """A single embedding vector with metadata for storage."""
+    """A single embedding vector with metadata for storage.
+
+    Used both for writing (embedding populated) and reading
+    (embedding is empty on search results to save bandwidth —
+    we only need the text and metadata for building context).
+    """
 
     chunk_id: str
     meeting_id: str
-    embedding: List[float]
-    text: str
-    metadata: Dict[str, str] = {}
+    embedding: List[float]  # 1536-dim for OpenAI text-embedding-3-small
+    text: str  # The full chunk text (reconstructed [timestamp] Speaker: text)
+    metadata: Dict[str, str] = {}  # Extra fields like 'speaker'
 
 
 class Citation(BaseModel):

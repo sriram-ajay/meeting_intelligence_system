@@ -54,7 +54,15 @@ class S3VectorsVectorStoreAdapter:
     # ------------------------------------------------------------------
 
     def store_vectors(self, vectors: List[VectorRecord]) -> None:
-        """Store embedding vectors in S3 Vectors index."""
+        """Store embedding vectors in S3 Vectors index.
+
+        Each vector is stored with its chunk_id as the key and metadata
+        containing meeting_id, truncated text (max 1000 chars to stay
+        within S3 Vectors metadata limits), and any extra metadata from
+        the VectorRecord.
+
+        Vectors are sent in batches of 100 (S3 Vectors API limit).
+        """
         if not vectors:
             return
 
@@ -66,14 +74,13 @@ class S3VectorsVectorStoreAdapter:
                     "data": {"float32": v.embedding},
                     "metadata": {
                         "meeting_id": v.meeting_id,
-                        "text": v.text[:1000],  # cap metadata text
+                        "text": v.text[:1000],  # S3 Vectors has metadata size limits
                         **v.metadata,
                     },
                 }
             )
 
         try:
-            # S3 Vectors supports batches; send in chunks of 100
             for i in range(0, len(records), 100):
                 batch = records[i : i + 100]
                 self._client.put_vectors(
@@ -98,17 +105,28 @@ class S3VectorsVectorStoreAdapter:
         top_k: int = 10,
         meeting_ids: Optional[List[str]] = None,
     ) -> List[VectorRecord]:
-        """ANN search with optional meeting_id filter."""
+        """ANN search against S3 Vectors index.
+
+        Key detail: ``returnMetadata=True`` is required to get metadata back
+        in the response. Without it, S3 Vectors returns only keys and scores.
+        This was not well-documented by AWS at launch.
+
+        When meeting_ids is provided, the search is pre-filtered using S3
+        Vectors' metadata filter syntax ($eq for single, $in for multiple).
+        """
         query_params: Dict[str, Any] = {
             "vectorBucketName": self._bucket,
             "indexName": self._index,
             "queryVector": {"float32": embedding},
             "topK": top_k,
+            # IMPORTANT: Must be True to receive metadata in results.
+            # Without this, response only contains keys and distance scores.
             "returnMetadata": True,
         }
 
+        # S3 Vectors supports metadata-level filtering at query time.
+        # This avoids retrieving irrelevant chunks from other meetings.
         if meeting_ids:
-            # S3 Vectors supports metadata filters
             if len(meeting_ids) == 1:
                 query_params["filter"] = {
                     "meeting_id": {"$eq": meeting_ids[0]}
@@ -152,8 +170,13 @@ class S3VectorsVectorStoreAdapter:
     def delete_by_meeting(self, meeting_id: str) -> None:
         """Delete all vectors for a given meeting_id.
 
-        Note: S3 Vectors may require listing keys by metadata filter first,
-        then deleting by key. This is a best-effort implementation.
+        S3 Vectors does not support deleting by metadata filter directly.
+        Workaround: we run a query with a dummy zero vector and a large top_k
+        to find all keys that have this meeting_id, then delete them by key.
+
+        This is best-effort — if there are more vectors than top_k (10000),
+        some may be missed. For our scale (hundreds of chunks per meeting)
+        this is fine.
         """
         try:
             # Query to find all keys for this meeting

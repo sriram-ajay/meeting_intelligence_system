@@ -93,18 +93,31 @@ class DynamoMetadataStoreAdapter:
         title: Optional[str] = None,
         participant: Optional[str] = None,
     ) -> List[MeetingRecord]:
-        """Scan with optional filters (DynamoDB scan — acceptable for Phase 1 scale)."""
+        """List meetings with optional AND-combined filters.
+
+        Uses DynamoDB Scan (not Query) because we don't have a GSI for
+        these filters. This is acceptable for Phase 1 scale (dozens of
+        meetings, not millions). For production, add a GSI on meeting_date
+        or switch to Query with a sort key.
+
+        Handles DynamoDB pagination automatically — Scan returns at most
+        1MB per call, so we loop until LastEvaluatedKey is None.
+        """
         filter_expr = None
 
+        # Build filter expression by AND-combining all provided filters.
         if date:
             condition = Attr("meeting_date").eq(date)
             filter_expr = condition if filter_expr is None else filter_expr & condition
 
         if title:
+            # Case-insensitive substring match. Works because we store
+            # title_normalized as lowercase in _to_dynamo_item.
             condition = Attr("title_normalized").contains(title.lower())
             filter_expr = condition if filter_expr is None else filter_expr & condition
 
         if participant:
+            # DynamoDB String Set 'contains' checks set membership.
             condition = Attr("participants").contains(participant)
             filter_expr = condition if filter_expr is None else filter_expr & condition
 
@@ -138,7 +151,13 @@ class DynamoMetadataStoreAdapter:
         status: IngestionStatus,
         error_message: Optional[str] = None,
     ) -> None:
-        """Update ingestion_status (and optionally error_message, ingested_at)."""
+        """Transition a meeting's ingestion_status.
+
+        Also sets ``ingested_at`` to the current UTC timestamp on every
+        status change. If error_message is provided, it's stored alongside
+        the status. If not (i.e. success), any previous error_message is
+        REMOVEd from the item to keep the record clean.
+        """
         update_expr = "SET ingestion_status = :s, ingested_at = :t"
         expr_values: Dict[str, Any] = {
             ":s": status.value,
@@ -179,7 +198,12 @@ class DynamoMetadataStoreAdapter:
 
     @staticmethod
     def _to_dynamo_item(record: MeetingRecord) -> Dict[str, Any]:
-        """Convert domain MeetingRecord → DynamoDB item dict."""
+        """Convert domain MeetingRecord → DynamoDB item dict.
+
+        DynamoDB stores participants as a String Set (native DDB type).
+        Empty sets are not allowed in DynamoDB, so we only include
+        participants when the list is non-empty.
+        """
         item: Dict[str, Any] = {
             "meeting_id": record.meeting_id,
             "title_normalized": record.title_normalized,
@@ -201,7 +225,12 @@ class DynamoMetadataStoreAdapter:
 
     @staticmethod
     def _from_dynamo_item(item: Dict[str, Any]) -> MeetingRecord:
-        """Convert DynamoDB item dict → domain MeetingRecord."""
+        """Convert DynamoDB item dict → domain MeetingRecord.
+
+        DynamoDB returns sets as Python sets. We convert to sorted lists
+        for deterministic ordering (important for test assertions and
+        consistent API responses).
+        """
         participants_raw = item.get("participants", set())
         # DynamoDB returns sets; convert to sorted list for determinism
         participants = sorted(list(participants_raw)) if participants_raw else []

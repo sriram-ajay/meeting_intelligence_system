@@ -89,11 +89,21 @@ def health_check() -> dict:
 # ======================================================================
 
 def _trigger_ecs_worker(meeting_id: str, filename: str) -> None:
-    """Fire-and-forget ECS RunTask for the worker container.
+    """Start async ingestion for an uploaded transcript.
 
-    In local / dev mode (when ecs_cluster_name is empty) runs ingestion
-    in-process on a background thread so the in-memory vector store is
-    populated within the API process.
+    Two modes depending on environment:
+
+    1. **Local dev** (ecs_cluster_name is empty):
+       Runs ingestion in a background daemon thread within the API process.
+       This is necessary because local dev uses InMemoryVectorStoreAdapter,
+       which only exists in the API process's memory. A separate process
+       would have its own empty store.
+
+    2. **AWS production** (ecs_cluster_name is set):
+       Fires an ECS RunTask via boto3. The worker container picks up
+       MEETING_ID and FILENAME from environment overrides, downloads
+       the raw file from S3, and runs the full ingestion pipeline.
+       The task runs in private subnets with no public IP.
     """
     if not settings.ecs_cluster_name:
         logger.info(
@@ -175,10 +185,19 @@ async def upload_transcript_v2(
     request: Request,
     file: UploadFile = File(...),
 ) -> JSONResponse:
-    """V2 upload — stores raw file in S3, creates PENDING metadata,
-    then triggers an ECS worker for async ingestion.
+    """V2 upload — two-phase async ingestion.
 
-    Returns immediately with meeting_id + PENDING status.
+    Phase 1 (synchronous, in this request):
+        - Validate and sanitize the filename
+        - Upload raw file to S3 via ArtifactStorePort
+        - Create a PENDING metadata record in DynamoDB
+        - Return 202 Accepted immediately with the meeting_id
+
+    Phase 2 (asynchronous, in background):
+        - Trigger ECS worker (or local thread) to parse, chunk, embed,
+          and store vectors
+        - Worker updates metadata to READY on success or FAILED on error
+        - Client polls GET /api/v2/status/{meeting_id} to check progress
     """
     try:
         filename = InputValidator.sanitize_filename(file.filename or "")
