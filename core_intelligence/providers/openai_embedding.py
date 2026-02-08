@@ -54,7 +54,7 @@ class OpenAIEmbeddingProvider(EmbeddingProviderBase):
         except Exception as e:
             self.logger.error(
                 "Embedding generation failed",
-                extra={"scope": LogScope.RAG_ENGINE, "error": str(e)}
+                extra={"scope": LogScope.PROVIDER, "error": str(e)}
             )
             raise
     

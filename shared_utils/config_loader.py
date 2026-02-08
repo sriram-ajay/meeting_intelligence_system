@@ -62,12 +62,45 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     openai_secret_name: Optional[str] = None
     
-    # Database
-    database_uri: str
+    # Database (v1 — deprecated, kept for backward compat)
+    database_uri: str = ""
     
     # Environment
     environment: str
     
+    # --- V2 settings (all optional with sensible defaults) ---
+
+    # AWS region
+    aws_region: str = "eu-west-2"
+
+    # AWS endpoint override (set to LocalStack URL for local dev, empty for real AWS)
+    aws_endpoint_url: str = ""
+
+    # S3 artifact storage
+    s3_raw_bucket: str = ""
+    s3_raw_prefix: str = "raw"
+    s3_derived_bucket: str = ""
+    s3_derived_prefix: str = "derived"
+
+    # DynamoDB metadata
+    dynamodb_table_name: str = "MeetingsMetadata"
+
+    # S3 Vectors
+    s3_vectors_bucket: str = ""
+    s3_vectors_index_name: str = ""
+
+    # Evaluation
+    enable_eval: bool = False
+    eval_last_n: int = 10
+    eval_s3_prefix: str = "derived/evaluations"
+
+    # ECS worker (for RunTask trigger from API)
+    ecs_cluster_name: str = ""
+    ecs_worker_task_def: str = ""
+    ecs_worker_subnets: str = ""  # comma-separated
+    ecs_worker_security_group: str = ""
+    ecs_worker_container_name: str = "worker"
+
     model_config = ConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
     @field_validator('embed_provider')
@@ -91,11 +124,17 @@ class Settings(BaseSettings):
     @field_validator('environment')
     @classmethod
     def validate_environment(cls, v: str) -> str:
-        """Validate environment is recognized."""
+        """Validate environment is recognized.
+        
+        Accepts both long (development/staging/production) and
+        short (dev/stage/prod) forms.  Stores the long form.
+        """
+        _short_map = {"dev": "development", "stage": "staging", "prod": "production"}
+        normalised = _short_map.get(v.lower(), v.lower())
         valid_envs = {"development", "staging", "production"}
-        if v.lower() not in valid_envs:
-            raise ValueError(f"environment must be one of {valid_envs}, got {v}")
-        return v.lower()
+        if normalised not in valid_envs:
+            raise ValueError(f"environment must be one of {valid_envs} (or dev/stage/prod), got {v}")
+        return normalised
     
     def get_api_base_url(self) -> str:
         """Get full API base URL constructed from host, port and protocol.
@@ -150,7 +189,6 @@ def get_settings() -> Settings:
         bedrock_region=settings.bedrock_region,
         llm_model_id=settings.bedrock_llm_model_id,
         embed_provider=settings.embed_provider,
-        database_uri=settings.database_uri
     )
     
     return settings

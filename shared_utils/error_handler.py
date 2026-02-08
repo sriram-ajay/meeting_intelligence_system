@@ -111,6 +111,26 @@ class ExternalServiceError(AppException):
         )
 
 
+class IngestionError(AppException):
+    """Ingestion pipeline error (v2)."""
+
+    def __init__(
+        self,
+        message: str,
+        meeting_id: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        ctx = {**(context or {})}
+        if meeting_id:
+            ctx["meeting_id"] = meeting_id
+        super().__init__(
+            error_code=ErrorCode.INGESTION_FAILED.value,
+            message=message,
+            context=ctx,
+            http_status=500,
+        )
+
+
 def log_exception(
     exc: Exception,
     scope: str = LogScope.ERROR_HANDLER,

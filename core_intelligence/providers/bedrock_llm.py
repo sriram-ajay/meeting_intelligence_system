@@ -57,7 +57,7 @@ class BedrockLLMProvider(LLMProviderBase):
         except Exception as e:
             self.logger.error(
                 "LLM generation failed",
-                extra={"scope": LogScope.RAG_ENGINE, "error": str(e)}
+                extra={"scope": LogScope.PROVIDER, "error": str(e)}
             )
             raise
     

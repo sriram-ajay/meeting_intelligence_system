@@ -9,7 +9,7 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 
-from core_intelligence.schemas.models import (
+from domain.models import (
     TranscriptSegment, MeetingTranscript, MeetingMetadata
 )
 from shared_utils.logging_utils import ContextualLogger

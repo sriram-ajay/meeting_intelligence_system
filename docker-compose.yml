@@ -1,4 +1,28 @@
 services:
+
+  # ---------------------------------------------------------------------------
+  # LocalStack — local AWS emulation (S3, DynamoDB)
+  # ---------------------------------------------------------------------------
+  localstack:
+    image: localstack/localstack:3.4
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,dynamodb
+      - DEFAULT_REGION=eu-west-2
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "./localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # API service (FastAPI)
+  # ---------------------------------------------------------------------------
   api:
     build:
       context: .
@@ -6,16 +30,31 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
       - ./api_service:/app/api_service
       - ./core_intelligence:/app/core_intelligence
       - ./shared_utils:/app/shared_utils
+      - ./domain:/app/domain
+      - ./ports:/app/ports
+      - ./adapters:/app/adapters
+      - ./services:/app/services
       - ./tests:/app/tests
     env_file:
       - .env
     environment:
-      - DATABASE_URI=/app/data/lancedb
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - S3_RAW_BUCKET=local-raw
+      - S3_DERIVED_BUCKET=local-derived
+      - S3_VECTORS_BUCKET=
+      - S3_VECTORS_INDEX_NAME=
+    depends_on:
+      localstack:
+        condition: service_healthy
 
+  # ---------------------------------------------------------------------------
+  # UI service (Streamlit)
+  # ---------------------------------------------------------------------------
   ui:
     build:
       context: .
@@ -32,3 +71,39 @@ services:
       - API_PORT=8000
     depends_on:
       - api
+
+  # ---------------------------------------------------------------------------
+  # Worker (ECS task emulation — invoke manually with docker-compose run)
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    volumes:
+      - ./worker:/app/worker
+      - ./services:/app/services
+      - ./domain:/app/domain
+      - ./ports:/app/ports
+      - ./adapters:/app/adapters
+      - ./core_intelligence:/app/core_intelligence
+      - ./shared_utils:/app/shared_utils
+    env_file:
+      - .env
+    environment:
+      - MEETING_ID=${MEETING_ID:-}
+      - FILENAME=${FILENAME:-}
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - S3_RAW_BUCKET=local-raw
+      - S3_DERIVED_BUCKET=local-derived
+      - S3_VECTORS_BUCKET=
+      - S3_VECTORS_INDEX_NAME=
+    depends_on:
+      localstack:
+        condition: service_healthy
+    profiles:
+      - worker
+
+volumes:
+  localstack_data:
