@@ -2,11 +2,6 @@ name: Product Pipeline (CI/CD)
 
 on:
   push:
-    branches:
-      - main
-      - "feature/**"
-      - "fix/**"
-      - "hotfix/**"
     branches-ignore:
       - v2
       - "v2/**"
