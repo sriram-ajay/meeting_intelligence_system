@@ -1,38 +1,36 @@
 # Meeting Intelligence System
 
-Modular system for processing and analyzing meeting transcripts using Retrieval-Augmented Generation (RAG). 
-It is designed to be service-oriented, allows independent scaling of the ingestion and query layers.
+Modular system for processing and analyzing meeting transcripts using RAG. Service-oriented design standards allows independent scaling of ingestion and query layers.
 
 ## Getting Started
 
 ### Prerequisites
-- **Docker & Docker Compose** (Primary)
-- **OpenAI API Key** (Configured in `.env`)
+- Docker & Docker Compose
+- OpenAI API Key
 
-### Quick Start (Recommended)
-The simplest way to run the full stack is via Docker Compose, which handles all dependencies automatically:
+### Quick Start
 
-1. **Configuration**: Create a `.env` file in the root directory:
+1. Create a `.env` file in the project root:
    ```bash
    OPENAI_API_KEY=sk-...
    ```
-2. **Run Services**:
-    cd to ./meeting_intelligence_system
+2. Run:
+   ```bash
+   cd ./meeting_intelligence_system
    docker-compose up --build
    ```
-3. **Environment**: Ensure your `.env` is configured as described above.
-4. SAMPLE Transcripts
-   -----------------
-*** meeting_intelligence_system\meeting_transcripts_sample **** 
 
-**Service Endpoints**:
-- Interactive UI (Streamlit): `http://localhost:8501`
-- REST API (FastAPI): `http://localhost:8000/docs`
+Sample transcripts are in `meeting_transcripts_sample/`.
 
+**Service Endpoints:**
+- UI (Streamlit): `http://localhost:8501`
+- API (FastAPI): `http://localhost:8000/docs`
 
-## � System Architecture Diagrams
+---
 
-### End-to-End Data Flow
+## Architecture
+
+### Data Flow
 ```mermaid
 graph TD
     subgraph "Frontend Layer"
@@ -72,12 +70,11 @@ graph TD
     MET -- "Display Metrics" --> UI
 ```
 
-**Key Flows:**
-- **Ingestion**: Transcripts are uploaded via Streamlit → FastAPI processes and chunks them → Stored in LanceDB with metadata.
-- **Retrieval**: User queries go through RAG Engine → Vector search retrieves relevant chunks → LLM synthesizes answer.
-- **Evaluation**: Ragas evaluator judges response quality using LLM-as-a-judge → Metrics stored for dashboarding.
+- **Ingestion**: Transcripts uploaded via Streamlit → FastAPI chunks them → stored in LanceDB with metadata.
+- **Retrieval**: Query → RAG Engine → vector search → LLM synthesizes answer from relevant chunks.
+- **Evaluation**: Ragas scores response quality (LLM-as-a-judge) → metrics persisted for dashboarding.
 
-### Production AWS Architecture & CI/CD Pipeline
+### Production AWS Architecture
 ```mermaid
 graph TD
     subgraph "CI/CD Pipeline (GitHub Actions)"
@@ -131,108 +128,94 @@ graph TD
     ECS_API -- "Evaluation" --> OPENAI
 ```
 
-**Deployment Pipeline ==> Current Repo ==>  Actions** 
-- **CI/CD**: GitHub Actions automatically tests, builds Docker images, and pushes to Amazon ECR on every commit.
-- **IaC**: Terraform provisions and manages all AWS resources (VPC, ECS, IAM, S3) with version control.
-- **GitHub OIDC**: Securely authenticates with AWS without long-lived credentials.
-- **Runtime**: End users connect through ALB → UI/API services scale independently on Fargate → Services call AWS Bedrock and OpenAI as needed.
+- **CI/CD**: GitHub Actions tests, builds Docker images, and pushes to ECR on each commit.
+- **IaC**: Terraform manages all AWS resources (VPC, ECS, IAM, S3).
+- **Auth**: GitHub OIDC — no long-lived credentials.
+- **Runtime**: ALB → UI/API on Fargate → Bedrock/OpenAI.
 
+---
 
-## RAG & LLM Implementation Strategy
-The idea was to demonstrate an end-to-end enterprise scale application.
-plug and switch components as we need.
+## RAG & LLM Implementation
+
+Components are pluggable — providers can be swapped without changing the pipeline.
 
 ### Component Selection
-- **LLM**: `claude-3-haiku-20240307-v1:0`. I tried a few models on aws, none of them worked and for what we are doing, all models relatively perform well, got my quotas increased for claude, using that.
+| Component | Choice | Notes |
+|-----------|--------|-------|
+| LLM | `claude-3-haiku` (Bedrock) | Falls back to OpenAI if Bedrock quotas are hit |
+| Embeddings | OpenAI | Originally Titan v2; moved due to Bedrock throttling limits |
+| Vector Store | LanceDB | Serverless S3 integration, Parquet-based storage |
+| Orchestration | LlamaIndex | Document management and retrieval pipeline abstraction |
 
-- **Embeddings**: picked amazon.titan-embed-text-v2:0, hit aws daily throtttling limit for personal users, moved to low cost per token openai.
-- **Vector Store**: **LanceDB**. I selected LanceDB specifically for its serverless integration with S3. This avoids the overhead of managing a persistent vector database cluster while maintaining high performance via Parquet-based storage.
-- **Orchestration**: **LlamaIndex**. Provides a cleaner abstraction for document management and retrieval pipelines compared to building from scratch.
+### Provider Fallback
+If AWS Bedrock is throttled, the system falls back to OpenAI automatically. Ensure `OPENAI_API_KEY` is set.
 
-### Avoiding Cloud Quotas (OpenAI vs. AWS Bedrock)
-If you encounter AWS Service Quotas or Throttling in production, the system is designed to seamlessly switch to OpenAI.
-- Ensure your `OPENAI_API_KEY` is set.
-- The system will bypass Bedrock and use OpenAI's robust endpoints for both reasoning and semantic search.
+### Retrieval Strategy Evolution
 
-### Retrieval and trials -- needs more time for optimisation and perfection.
-The current architecture is the result of several failed experiments with "flashy" RAG techniques:
+**Iteration 1 — Naive Vector Search:**
+- Small chunks caused context fragmentation (lost conversational context between speakers).
+- Moved to **Semantic Partitioning** — chunks by topic change rather than token count.
 
-**Iteration 1: Naive Vector Search**: 
-   -  Small chunks caused "Context Fragmentation." The LLM would see a speaker's answer but lose the original question asked 20 seconds prior.
-   -      Moved to **Semantic Partitioning**, which chunks by topic change rather than token count.
+**Iteration 2 — RAG Fusion (RRF):**
+- Multi-query generation increased latency and triggered rate limits with marginal retrieval improvement.
+- Retained as a pluggable strategy in `core_intelligence.engine.strategies.retrieval`.
 
-**Iteration 2: RAG Fusion (RRF)**:
-   -   Generating 4-5 query variations led to "Inference Bloat." It increased latency and triggered AWS/OpenAI rate limits, while often retrieving 
-         redundant content.
-   -    kept as a pluggable strategy in `core_intelligence.engine.strategies.retrieval`. needs more effort to make it better.
-
- **Iteration 3** Hybrid + Semantic Reranking**:
-   - combination of vector similarity and keyword matching (on local filesystems) or high-k vector search (on S3).
-   - the chunks are then fed into a LLM Reranker to get the top 5 most relevant context sections.
+**Iteration 3 — Hybrid + Semantic Reranking (current):**
+- Combines vector similarity with keyword matching (local) or high-k vector search (S3).
+- LLM Reranker selects top 5 most relevant chunks.
 
 ### Guardrails
-I implemented a two-stage validation layer that acts as a gatekeeper for both inputs and outputs.
-- **Input**: Blocks attempts or queries that try to move the discussion outside the scope.
-- **Output**: A "Verify-Only" checks the LLM's final summary against the physical chunks retrieved from LanceDB. detects hallucination (like an action item that wasn't in the data), it automatically replaces the response with a "safe" version. 
-as usual the problem is there are no nodes being returned from the search.
+Two-stage validation on inputs and outputs:
+- **Input**: Blocks off-topic or out-of-scope queries.
+- **Output**: Verifies the LLM response against retrieved chunks. If hallucination is detected (e.g., fabricated action items), the response is replaced with a grounded version.
+
+**Known issue**: Output guardrails can fail when vector search returns no nodes.
 
 ---
 
-## Observability & Monitoring
+## Observability
 
-system is production-ready and debuggable.
+### Structured Logging (`structlog`)
+JSON-formatted logs with scoped loggers per component. Standard fields include `func_name`, `elapsed_seconds`, `result_type`. Compatible with CloudWatch and Datadog.
 
-### 1. Structured Logging (`structlog`)
-Instead of plain text logs, the system uses **Structured JSON Logging**.
-- **Scoped Loggers**: Every component (API, RAG Engine, Parser) uses a scoped logger that automatically injects relevant context (e.g., `scope="api"`, `meeting_id="..."`).
-- **Standardized Fields**: Logs include `func_name`, `elapsed_seconds`, and `result_type` for all decorated executions.
-- **Cloud-Ready**: The JSON format is natively compatible with AWS CloudWatch and Datadog.
+### RAG Quality Monitoring (Ragas)
+Available via `/api/evaluate`. Tracks Faithfulness, Answer Relevancy, and Context Precision. Results persisted to `data/metrics/historical_metrics.json`.
 
-### 2. RAG Quality Monitoring (Ragas)
-Continuous evaluation is built into the API via the `/api/evaluate` endpoint.
-- **Metrics**: Tracks `Faithfulness` (hallucination detection), `Answer Relevancy`, and `Context Precision`.
-- **Historical Analysis**: Results are persisted to `data/metrics/historical_metrics.json`, allowing us to track performance regressions over time as we update prompts or chunking strategies. ****currently only works on local env not in production.
+**Note**: Evaluation currently works on local filesystem only, not on aws.
 
-### 3. Unified Observability Dashboard
-The Streamlit UI includes a dedicated **Metrics Dashboard** that visualizes:
-- **Historical Quality Trends**: Moving averages of Faithfulness and Relevancy scores.
-- **Performance Latency**: Tracking of retrieval and generation times.
-- **System Stats**: Document counts and indexing status.
+### Metrics Dashboard
+Streamlit UI dashboard showing:
+- Quality score trends (Faithfulness, Relevancy)
+- Retrieval and generation latency
+- Document counts and indexing status
 
 ---
 
-## Technical Decisions & Standards
+## Technical Decisions
 
-### Key Decisions
-I prioritized a modular and pluggable architecture; most components are decoupled so it can be scaled or containerized as a standalone service if required. 
+- **Modular architecture**: Components are decoupled and independently deployable.
+- **Schema safety**: `SchemaManager` validates LanceDB table structure against Pydantic models at startup.
+- **Stateless services**: No server-side session state.
+- **Validation**: Pydantic models for all inter-service data exchange.
+- **Logging**: `structlog` for structured JSON logs across all services.
+- **Testing**: Integration tests for the RAG pipeline using Ragas (faithfulness/relevancy). Currently operational on local filesystem only.
 
-**Schema Safety**: `SchemaManager` that runs to verifiy that the LanceDB table structure matches our Pydantic models, preventing runtime errors.
-3. **Stateless Operations**: strictly stateless services.
-
-- **Validation**: Strict Pydantic models for all data interchanged between services.
-- **Logging**: Implemented `structlog` for JSON-standardized logs to facilitate debugging across multiple services in CloudWatch/Datadog.
-- **Testing**: Focused on integration tests for the RAG pipeline using `Ragas` to measure faithfulness and relevancy.
-                                its currently not operational on s3 but works fine on local filesystem.
-
+---
 
 ## AI-Assisted Development
-The development of this system utilized a hybrid "Pilot/Navigator" approach. **GitHub Copilot (Gemini/Claude)** acted as a high-velocity pair programmer for scaffolding and boilerplate. This enabled me to focus on high-level architectural decisions, complex debugging of the LanceDB/S3 storage layer, and resolving CI/CD integration challenges on AWS.
+GitHub Copilot was used for  full code generation. Architectural decisions, LanceDB/S3 debugging, and CI/CD integration were done manually.
 
 ---
 
-### Retrospective & Future Directions
-With more time, I would focus on:
-1. **Response Grounding**: Enhancing guardrails with complex grounded templates to formally verify facts before they reach the user.
-2. **Agentic Tool Use**: Expanding beyond flat retrieval to allow the system to call external tools (calendars, project trackers) based on meeting outcomes.
-3. **Knowledge Graph Expansion**: Transitioning from a flat vector store to a hybrid Vector+Graph approach to track entity relationships across multi-year histories.
-4. **Multi-Modal Ingestion**: Integrating Whisper directly to handle raw audio alongside text transcripts.
-5. **Quota Management**: Implementing precise token usage and quota tracking per user/session.
-
-### Cloud Native Implementation
-The core pipeline is already cloud-ready with CI/CD and S3-backend LanceDB. The next phase involves scaling the ingestion via an async queue (SQS/Celery), tightening the evaluation guardrails for 99.9% groundedness, and potentially moving from OpenAI to high-throughput Bedrock models as quotas allow.
+## Future Directions
+1. **Response Grounding**: Grounded templates to verify facts before returning to the user.
+2. **Agentic Tool Use**: Allow the system to call external tools (calendars, project trackers) based on meeting outcomes.
+3. **Knowledge Graph**: Hybrid Vector+Graph store for entity relationships across meetings.
+4. **Audio Ingestion**: Whisper integration for raw audio transcripts.
+5. **Async Ingestion**: SQS/Celery queue for scaling transcript processing.
+6. **Quota Management**: Per-user/session token tracking.
 
 ---
-*Technical Handover Documentation - February 2026*
 
 
 
