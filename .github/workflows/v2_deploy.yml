@@ -1,0 +1,206 @@
+name: V2 Pipeline (CI/CD)
+
+on:
+  push:
+    branches:
+      - v2
+      - v2/**
+  pull_request:
+    branches:
+      - v2
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-west-2
+  AWS_ACCOUNT_ID: "637423277250"
+  # V2 ECR repositories
+  ECR_REPOSITORY_API: meeting-intel-v2-api
+  ECR_REPOSITORY_UI: meeting-intel-v2-ui
+  ECR_REPOSITORY_WORKER: meeting-intel-v2-worker
+  # V2 ECS resources
+  ECS_CLUSTER: meeting-intel-v2-cluster
+  ECS_SERVICE_API: meeting-intel-v2-api-service
+  ECS_SERVICE_UI: meeting-intel-v2-ui-service
+  # V2 OIDC role (provisioned by Terraform, no secrets needed)
+  AWS_ROLE_ARN: arn:aws:iam::637423277250:role/meeting-intel-v2-github-actions-role
+
+jobs:
+  # ===========================================================================
+  # Stage 1: Test
+  # ===========================================================================
+  test:
+    name: 1. Test (Pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmagic-dev
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry --version
+
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      - name: Install dependencies
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry config virtualenvs.create false
+          poetry install --no-root
+
+      - name: Run Pytest
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          export PYTHONPATH=$PYTHONPATH:.
+          export LLM_PROVIDER=openai
+          export BEDROCK_REGION=eu-west-2
+          export BEDROCK_LLM_MODEL_ID=dummy
+          export EMBED_PROVIDER=openai
+          export OPENAI_API_KEY=sk-dummy-key-for-tests
+          export DATABASE_URI=./data/test_lancedb
+          export ENVIRONMENT=development
+          poetry run pytest tests/ -v -m "not integration and not rag_eval"
+
+  # ===========================================================================
+  # Stage 2: Build & Push (all 3 images)
+  # ===========================================================================
+  build-and-push:
+    name: 2. Build & Push to ECR
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image-api: ${{ steps.push-api.outputs.image }}
+      image-ui: ${{ steps.push-ui.outputs.image }}
+      image-worker: ${{ steps.push-worker.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push API Image
+        id: push-api
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f api_service/Dockerfile \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY_API:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build and Push UI Image
+        id: push-ui
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f ui_service/Dockerfile \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_UI:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_UI:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Worker Image
+        id: push-worker
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f worker/Dockerfile \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  # ===========================================================================
+  # Stage 3: Deploy (force-redeploy API + UI services)
+  # ===========================================================================
+  deploy:
+    name: 3. Deploy to V2
+    needs: build-and-push
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Force-redeploy API service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE_API }} \
+            --force-new-deployment \
+            --query 'service.deployments[0].{status:status,desired:desiredCount}' \
+            --output table
+
+      - name: Force-redeploy UI service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE_UI }} \
+            --force-new-deployment \
+            --query 'service.deployments[0].{status:status,desired:desiredCount}' \
+            --output table
+
+      - name: Wait for API service stability
+        run: |
+          echo "Waiting for API service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE_API }}
+          echo "API service stable."
+
+      - name: Wait for UI service stability
+        run: |
+          echo "Waiting for UI service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE_UI }}
+          echo "UI service stable."
+
+      - name: Verify deployment
+        run: |
+          echo "=== V2 Service Status ==="
+          aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE_API }} ${{ env.ECS_SERVICE_UI }} \
+            --query 'services[*].{name:serviceName,status:status,running:runningCount,desired:desiredCount}' \
+            --output table

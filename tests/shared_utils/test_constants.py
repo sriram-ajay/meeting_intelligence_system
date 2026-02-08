@@ -126,7 +126,7 @@ class TestAPIEndpoints:
         assert APIEndpoints.HEALTH == "/health"
 
     def test_meetings_endpoint(self) -> None:
-        assert APIEndpoints.MEETINGS == "/api/meetings"
+        assert APIEndpoints.MEETINGS == "/api/v2/meetings"
 
     def test_v2_status_endpoint(self) -> None:
         assert "{meeting_id}" in APIEndpoints.STATUS

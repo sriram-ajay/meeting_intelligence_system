@@ -150,7 +150,7 @@ class TestStatusEndpoint:
         metadata.get_meeting.return_value = _mock_meeting(status=IngestionStatus.PENDING)
         mock_get_di.return_value = container
 
-        response = client.get("/api/status/abc-123")
+        response = client.get("/api/v2/status/abc-123")
         assert response.status_code == 200
         assert response.json()["status"] == "PENDING"
 
@@ -160,7 +160,7 @@ class TestStatusEndpoint:
         metadata.get_meeting.return_value = _mock_meeting(status=IngestionStatus.READY)
         mock_get_di.return_value = container
 
-        response = client.get("/api/status/abc-123")
+        response = client.get("/api/v2/status/abc-123")
         assert response.status_code == 200
         assert response.json()["status"] == "READY"
 
@@ -172,7 +172,7 @@ class TestStatusEndpoint:
         )
         mock_get_di.return_value = container
 
-        response = client.get("/api/status/abc-123")
+        response = client.get("/api/v2/status/abc-123")
         body = response.json()
         assert body["status"] == "FAILED"
         assert body["error"] == "parse failed"
@@ -183,7 +183,7 @@ class TestStatusEndpoint:
         metadata.get_meeting.return_value = None
         mock_get_di.return_value = container
 
-        response = client.get("/api/status/nonexistent")
+        response = client.get("/api/v2/status/nonexistent")
         assert response.status_code == 404
 
     @patch("api_service.src.main.get_di_container")
@@ -192,7 +192,7 @@ class TestStatusEndpoint:
         metadata.get_meeting.return_value = _mock_meeting(status=IngestionStatus.READY)
         mock_get_di.return_value = container
 
-        body = client.get("/api/status/abc-123").json()
+        body = client.get("/api/v2/status/abc-123").json()
         assert "meeting_id" in body
         assert "status" in body
         assert "title" in body
@@ -209,7 +209,7 @@ class TestMeetingsEndpoint:
         metadata.query_meetings.return_value = []
         mock_get_di.return_value = container
 
-        response = client.get("/api/meetings")
+        response = client.get("/api/v2/meetings")
         assert response.status_code == 200
         assert response.json() == []
 
@@ -222,7 +222,7 @@ class TestMeetingsEndpoint:
         ]
         mock_get_di.return_value = container
 
-        response = client.get("/api/meetings")
+        response = client.get("/api/v2/meetings")
         body = response.json()
         assert len(body) == 2
         assert body[0]["meeting_id"] == "m-1"
@@ -234,7 +234,7 @@ class TestMeetingsEndpoint:
         metadata.query_meetings.return_value = []
         mock_get_di.return_value = container
 
-        client.get("/api/meetings?date=2026-01-15&participant=Alice")
+        client.get("/api/v2/meetings?date=2026-01-15&participant=Alice")
         metadata.query_meetings.assert_called_once_with(
             date="2026-01-15", title=None, participant="Alice"
         )
@@ -248,7 +248,7 @@ class TestMeetingsEndpoint:
         ]
         mock_get_di.return_value = container
 
-        body = client.get("/api/meetings").json()
+        body = client.get("/api/v2/meetings").json()
         record = body[0]
         assert set(record.keys()) == {"meeting_id", "title", "date", "status", "participants"}
 
@@ -258,7 +258,7 @@ class TestMeetingsEndpoint:
         metadata.query_meetings.side_effect = RuntimeError("DynamoDB down")
         mock_get_di.return_value = container
 
-        response = client.get("/api/meetings")
+        response = client.get("/api/v2/meetings")
         assert response.status_code == 500
 
 
