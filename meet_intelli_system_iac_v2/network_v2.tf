@@ -95,6 +95,14 @@ resource "aws_security_group" "vpc_endpoints" {
     security_groups = [aws_security_group.ecs_v2.id]
   }
 
+  ingress {
+    description     = "HTTPS from V1 ECS (shared VPC — private_dns_enabled affects all tasks)"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [data.aws_security_group.ecs_v1_sg.id]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0

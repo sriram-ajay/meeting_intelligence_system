@@ -47,6 +47,11 @@ data "aws_security_group" "lb_sg" {
   vpc_id = data.aws_vpc.main.id
 }
 
+data "aws_security_group" "ecs_v1_sg" {
+  name   = "${var.v1_project_name}-ecs-sg"
+  vpc_id = data.aws_vpc.main.id
+}
+
 # --- Internet Gateway (needed to attach S3 gateway to public route table) ---
 
 data "aws_internet_gateway" "main" {
