@@ -4,7 +4,7 @@ Tests for services.guardrail_service.GuardrailService.
 Covers:
     - validate_input: safe, unsafe, LLM failure (fail-open)
     - verify_grounding: passed, failed w/ safe response, empty contexts
-    - verify_grounding: contexts truncated to 5, LLM failure (fail-open)
+    - verify_grounding: all contexts sent to grounding check, LLM failure (fail-open)
     - Prompt templates are correct
 """
 
@@ -18,7 +18,6 @@ from services.guardrail_service import (
     GROUNDING_PROMPT,
     SAFETY_PROMPT,
     GuardrailService,
-    _MAX_GROUNDING_CONTEXTS,
 )
 
 
@@ -115,17 +114,16 @@ class TestVerifyGrounding:
         assert is_grounded is False
         assert "enough meeting context" in answer.lower()
 
-    def test_contexts_truncated_to_max(self) -> None:
+    def test_all_contexts_sent_to_grounding(self) -> None:
         llm = _build_llm("VERDICT: PASSED\nREASON: ok\nSAFE_RESPONSE: ok")
         svc = _make_service(llm)
         contexts = [f"ctx-{i}" for i in range(20)]
         svc.verify_grounding("answer", contexts)
 
         prompt = llm.generate.call_args[0][0]
-        # Only first _MAX_GROUNDING_CONTEXTS should appear
-        assert f"ctx-{_MAX_GROUNDING_CONTEXTS}" not in prompt
+        # All contexts should appear — no truncation
         assert "ctx-0" in prompt
-        assert f"ctx-{_MAX_GROUNDING_CONTEXTS - 1}" in prompt
+        assert "ctx-19" in prompt
 
     def test_llm_error_fails_open(self) -> None:
         llm = MagicMock()

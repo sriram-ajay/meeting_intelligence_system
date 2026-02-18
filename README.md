@@ -93,30 +93,38 @@ The application has the following user-facing flows:
 
 ```mermaid
 graph TD
-    subgraph "User"
+    subgraph UserLayer ["User"]
         Browser[Browser]
     end
 
-    subgraph "Frontend"
+    subgraph FrontendLayer ["Frontend"]
         UI["Streamlit UI<br/>(Chat | Meetings | Monitoring)"]
     end
 
-    subgraph "API Layer"
+    subgraph APILayer ["API Layer"]
         API["FastAPI<br/>/api/v2/*"]
     end
 
-    subgraph "Async Processing"
+    subgraph AsyncLayer ["Async Processing"]
         Worker["ECS Worker<br/>(Fargate RunTask)"]
     end
 
-    subgraph "Services (Pure Python)"
-        IS[IngestionService]
-        QS[QueryService]
-        GS[GuardrailService]
-        ES[EvaluationService]
+    subgraph DomainLayer ["Domain Models (Pure Pydantic)"]
+        DM["MeetingRecord, CitedAnswer,<br/>TranscriptSegment, ChunkMapEntry,<br/>IngestionReport, QueryRequest"]
     end
 
-    subgraph "Ports (Interfaces)"
+    subgraph CoreLayer ["Core Intelligence"]
+        TP["TranscriptParser<br/>(timestamp/speaker extraction,<br/>normalize, fallback heuristics)"]
+    end
+
+    subgraph ServiceLayer ["Services (Pure Python)"]
+        IS["IngestionService<br/>(parse, normalize, sliding-window chunk,<br/>embed, store vectors, chunk_map.json)"]
+        QS["QueryService<br/>(embed question, vector search, load chunk_map,<br/>grounded prompt, LLM, grounding verification, CitedAnswer)"]
+        GS["GuardrailService<br/>(input safety SAFE/UNSAFE classification,<br/>output grounding verification)"]
+        ES["EvaluationService<br/>(DeepEval Faithfulness,<br/>Answer Relevancy metrics)"]
+    end
+
+    subgraph PortLayer ["Ports (Interfaces)"]
         AS[ArtifactStorePort]
         MS[MetadataStorePort]
         VS[VectorStorePort]
@@ -124,7 +132,7 @@ graph TD
         EP[EmbeddingProviderPort]
     end
 
-    subgraph "Adapters (Implementations)"
+    subgraph AdapterLayer ["Adapters (Implementations)"]
         S3A[S3 Artifact Store]
         DDB[DynamoDB Metadata Store]
         S3V[S3 Vectors Store]
@@ -132,7 +140,15 @@ graph TD
         OAI[OpenAI Embeddings]
     end
 
-    subgraph "AWS Services"
+    subgraph UtilLayer ["Shared Utilities"]
+        CFG["ConfigLoader<br/>(pydantic-settings, env-aware)"]
+        DI["DI Container<br/>(lazy singletons, adapter wiring)"]
+        LOG["Logging<br/>(structlog JSON, @log_execution)"]
+        ERR["Error Handler<br/>(AppException hierarchy,<br/>error codes, HTTP status)"]
+        VAL["Validation<br/>(InputValidator)"]
+    end
+
+    subgraph AWSLayer ["AWS Services"]
         S3_R[(S3 Raw)]
         S3_D[(S3 Derived)]
         S3Vec[(S3 Vectors)]
@@ -150,15 +166,33 @@ graph TD
     QS --> GS
     API -- "POST /evaluate" --> ES
 
+    IS --> TP
+    IS & QS & GS & ES -.-> DM
+
     IS --> AS & MS & VS & EP
     QS --> VS & EP & LP & AS
     GS --> LP
+
+    IS & QS & GS & ES -.-> LOG & ERR & VAL
+    API & Worker -.-> DI & CFG
 
     AS --> S3A --> S3_R & S3_D
     MS --> DDB --> Dynamo
     VS --> S3V --> S3Vec
     LP --> BED --> Bedrock
     EP --> OAI --> OpenAI
+
+    style UserLayer fill:#e8f4f8,stroke:#5b9bd5,color:#000
+    style FrontendLayer fill:#dae8fc,stroke:#6c8ebf,color:#000
+    style APILayer fill:#d5e8d4,stroke:#82b366,color:#000
+    style AsyncLayer fill:#fff2cc,stroke:#d6b656,color:#000
+    style DomainLayer fill:#e1d5e7,stroke:#9673a6,color:#000
+    style CoreLayer fill:#f8cecc,stroke:#b85450,color:#000
+    style ServiceLayer fill:#d4edda,stroke:#28a745,color:#000
+    style PortLayer fill:#fce5cd,stroke:#d79b00,color:#000
+    style AdapterLayer fill:#dce6f1,stroke:#4472c4,color:#000
+    style UtilLayer fill:#f2e6d9,stroke:#c47f30,color:#000
+    style AWSLayer fill:#f5f5f5,stroke:#666666,color:#000
 ```
 
 **How a query flows through the system:**

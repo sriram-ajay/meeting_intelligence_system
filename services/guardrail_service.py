@@ -50,9 +50,6 @@ GROUNDING_PROMPT = (
     "SAFE_RESPONSE: [Corrected answer or same if passed]"
 )
 
-# Maximum number of context passages sent to the grounding check.
-_MAX_GROUNDING_CONTEXTS = 5
-
 
 class GuardrailService:
     """Stateless guard that wraps LLMProviderPort with safety prompts."""
@@ -102,8 +99,7 @@ class GuardrailService:
             )
 
         try:
-            truncated = contexts[:_MAX_GROUNDING_CONTEXTS]
-            context_block = "\n---\n".join(truncated)
+            context_block = "\n---\n".join(contexts)
             prompt = GROUNDING_PROMPT.format(
                 context=context_block, answer=answer
             )
