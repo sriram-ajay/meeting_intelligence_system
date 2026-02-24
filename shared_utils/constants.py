@@ -93,6 +93,13 @@ class APIEndpoints:
     V2_QUERY = "/api/v2/query"
     V2_EVALUATE = "/api/v2/evaluate"
     V2_EVAL_HISTORY = "/api/v2/eval/history"
+    # v3 endpoints (LangGraph-powered)
+    V3_UPLOAD = "/api/v3/upload"
+    V3_QUERY = "/api/v3/query"
+    V3_CHAT_HISTORY = "/api/v3/chat/{session_id}"
+    V3_CHAT_SESSIONS = "/api/v3/chat/sessions"
+    V3_USER_PROFILE = "/api/v3/user/{user_id}/profile"
+    V3_GRAPH_VIZ = "/api/v3/graph/{graph_name}"
 
 
 # Error codes

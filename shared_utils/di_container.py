@@ -45,6 +45,13 @@ class DIContainer:
     _guardrail_service: Optional[object] = None
     _eval_store: Optional[object] = None
     _evaluation_service: Optional[object] = None
+
+    # v3 LangGraph singletons
+    _ingestion_graph: Optional[object] = None
+    _query_graph: Optional[object] = None
+    _query_cache: Optional[object] = None
+    _chat_history: Optional[object] = None
+    _user_memory: Optional[object] = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -63,6 +70,11 @@ class DIContainer:
         self._guardrail_service = None
         self._eval_store = None
         self._evaluation_service = None
+        self._ingestion_graph = None
+        self._query_graph = None
+        self._query_cache = None
+        self._chat_history = None
+        self._user_memory = None
     
     def get_embedding_provider(self) -> EmbeddingProviderBase:
         """Get or create embedding provider (lazy singleton).
@@ -280,6 +292,106 @@ class DIContainer:
             )
             logger.info("Initialized EvaluationService")
         return self._evaluation_service
+
+
+    # ------------------------------------------------------------------
+    # V3 LangGraph accessors
+    # ------------------------------------------------------------------
+
+    def get_query_cache(self):
+        """Get or create DynamoQueryCacheAdapter (lazy singleton).
+
+        If the DYNAMODB_QUERY_CACHE_TABLE env var / setting is empty,
+        returns None (cache disabled — graph nodes handle None gracefully).
+        """
+        if self._query_cache is None:
+            settings = get_settings()
+            table_name = getattr(settings, "dynamodb_query_cache_table", "")
+            if not table_name:
+                logger.info("Query cache disabled (no table configured)")
+                return None
+            from adapters.dynamo_query_cache import DynamoQueryCacheAdapter
+
+            self._query_cache = DynamoQueryCacheAdapter(
+                table_name=table_name,
+                region=settings.aws_region,
+                endpoint_url=settings.aws_endpoint_url,
+            )
+            logger.info("Initialized DynamoQueryCacheAdapter")
+        return self._query_cache
+
+    def get_chat_history(self):
+        """Get or create DynamoChatHistoryAdapter (lazy singleton).
+
+        If DYNAMODB_CHAT_HISTORY_TABLE is empty, returns None.
+        """
+        if self._chat_history is None:
+            settings = get_settings()
+            table_name = getattr(settings, "dynamodb_chat_history_table", "")
+            if not table_name:
+                logger.info("Chat history disabled (no table configured)")
+                return None
+            from adapters.dynamo_chat_history import DynamoChatHistoryAdapter
+
+            self._chat_history = DynamoChatHistoryAdapter(
+                table_name=table_name,
+                region=settings.aws_region,
+                endpoint_url=settings.aws_endpoint_url,
+            )
+            logger.info("Initialized DynamoChatHistoryAdapter")
+        return self._chat_history
+
+    def get_user_memory(self):
+        """Get or create DynamoUserMemoryAdapter (lazy singleton).
+
+        If DYNAMODB_USER_MEMORY_TABLE is empty, returns None.
+        """
+        if self._user_memory is None:
+            settings = get_settings()
+            table_name = getattr(settings, "dynamodb_user_memory_table", "")
+            if not table_name:
+                logger.info("User memory disabled (no table configured)")
+                return None
+            from adapters.dynamo_user_memory import DynamoUserMemoryAdapter
+
+            self._user_memory = DynamoUserMemoryAdapter(
+                table_name=table_name,
+                region=settings.aws_region,
+                endpoint_url=settings.aws_endpoint_url,
+            )
+            logger.info("Initialized DynamoUserMemoryAdapter")
+        return self._user_memory
+
+    def get_ingestion_graph(self):
+        """Get or create the LangGraph ingestion pipeline (lazy singleton)."""
+        if self._ingestion_graph is None:
+            from graphs.ingestion_graph import build_ingestion_graph
+
+            self._ingestion_graph = build_ingestion_graph(
+                artifact_store=self.get_artifact_store(),
+                metadata_store=self.get_metadata_store(),
+                vector_store=self.get_vector_store(),
+                embedding_provider=self.get_embedding_provider(),
+            )
+            logger.info("Initialized LangGraph ingestion pipeline")
+        return self._ingestion_graph
+
+    def get_query_graph(self):
+        """Get or create the LangGraph query pipeline (lazy singleton)."""
+        if self._query_graph is None:
+            from graphs.query_graph import build_query_graph
+
+            self._query_graph = build_query_graph(
+                vector_store=self.get_vector_store(),
+                embedding_provider=self.get_embedding_provider(),
+                llm_provider=self.get_llm_provider(),
+                artifact_store=self.get_artifact_store(),
+                guardrails=self.get_guardrail_service(),
+                query_cache=self.get_query_cache(),
+                chat_history=self.get_chat_history(),
+            )
+            logger.info("Initialized LangGraph query pipeline")
+        return self._query_graph
 
 
 # Global singleton instance

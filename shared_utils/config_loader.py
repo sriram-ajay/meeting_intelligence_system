@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     s3_vectors_bucket: str = ""
     s3_vectors_index_name: str = ""
 
+    # Query cache (Phase 9 — empty string disables cache)
+    dynamodb_query_cache_table: str = ""
+
+    # Chat history (Phase 10 — empty string disables persistence)
+    dynamodb_chat_history_table: str = ""
+
+    # User memory (Phase 11 — empty string disables persistence)
+    dynamodb_user_memory_table: str = ""
+
     # Evaluation
     enable_eval: bool = False
     eval_last_n: int = 10

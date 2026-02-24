@@ -1,14 +1,20 @@
 """
-FastAPI backend for Meeting Intelligence System v2.
+FastAPI backend for Meeting Intelligence System v2/v3.
 
 Endpoints:
-    GET  /health                     — Health check
-    POST /api/v2/upload              — Async ingestion (S3 + ECS worker)
-    GET  /api/status/{meeting_id}    — Poll ingestion status
-    GET  /api/meetings               — List meetings (optional filters)
-    POST /api/v2/query               — Grounded Q&A with citations
-    POST /api/v2/evaluate            — Run DeepEval metrics on a Q&A pair
-    GET  /api/v2/eval/history        — Retrieve evaluation history
+    GET  /health                          — Health check
+    POST /api/v2/upload                   — Async ingestion (S3 + ECS worker)
+    GET  /api/v2/status/{meeting_id}      — Poll ingestion status
+    GET  /api/v2/meetings                 — List meetings (optional filters)
+    POST /api/v2/query                    — Grounded Q&A with citations
+    POST /api/v2/evaluate                 — Run DeepEval metrics on a Q&A pair
+    GET  /api/v2/eval/history             — Retrieve evaluation history
+    POST /api/v3/upload                   — LangGraph-powered ingestion
+    POST /api/v3/query                    — LangGraph-powered Q&A with chat history
+    GET  /api/v3/chat/{session_id}        — Get chat session history
+    GET  /api/v3/chat/sessions            — List chat sessions for a user
+    GET  /api/v3/user/{user_id}/profile   — Get user memory profile
+    GET  /api/v3/graph/{graph_name}       — Mermaid visualization of a graph
 """
 
 import uuid
@@ -441,3 +447,304 @@ if __name__ == "__main__":
         port=8000,
         log_level="info"
     )
+
+
+# ======================================================================
+# V3 endpoints — LangGraph-powered
+# ======================================================================
+
+
+@app.post(APIEndpoints.V3_UPLOAD)
+@limiter.limit("20/minute")
+async def upload_transcript_v3(
+    request: Request,
+    file: UploadFile = File(...),
+) -> JSONResponse:
+    """V3 upload — LangGraph ingestion pipeline.
+
+    Same two-phase approach as v2, but uses the LangGraph ingestion
+    graph instead of IngestionService for the async processing phase.
+    """
+    try:
+        filename = InputValidator.sanitize_filename(file.filename or "")
+        InputValidator.validate_file_extension(filename, ["txt"])
+
+        content = await file.read()
+        if not content:
+            raise ValidationError("File is empty", context={"filename": filename})
+
+        meeting_id = str(uuid.uuid4())
+        logger.info("v3_upload_started", meeting_id=meeting_id, filename=filename)
+
+        container = get_di_container()
+        artifact_store = container.get_artifact_store()
+        metadata_store = container.get_metadata_store()
+
+        # Phase 1: Store raw + PENDING record
+        raw_uri = artifact_store.upload_raw(meeting_id, filename, content)
+        record = MeetingRecord(
+            meeting_id=meeting_id,
+            title_normalized=filename.rsplit(".", 1)[0].lower().replace("_", " "),
+            meeting_date="",
+            s3_uri_raw=raw_uri,
+            s3_uri_derived_prefix=artifact_store.get_derived_prefix(meeting_id),
+            ingestion_status=IngestionStatus.PENDING,
+        )
+        metadata_store.put_meeting(record)
+
+        # Phase 2: Trigger LangGraph ingestion
+        _trigger_v3_ingestion(meeting_id, filename, content)
+
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "meeting_id": meeting_id,
+                "status": IngestionStatus.PENDING.value,
+                "message": "Transcript accepted for LangGraph processing",
+                "pipeline": "v3",
+            },
+        )
+
+    except AppException as e:
+        logger.warning("v3_upload_error", error_code=e.error_code)
+        return JSONResponse(status_code=e.http_status, content=e.to_dict())
+    except Exception as e:
+        error_response = handle_error(e, scope=LogScope.API)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_response,
+        )
+
+
+def _trigger_v3_ingestion(meeting_id: str, filename: str, content: bytes) -> None:
+    """Run LangGraph ingestion pipeline in a background thread."""
+    def _run():
+        try:
+            container = get_di_container()
+            graph = container.get_ingestion_graph()
+            result = graph.invoke({
+                "meeting_id": meeting_id,
+                "filename": filename,
+                "raw_content": content,
+            })
+            report = result.get("report")
+            logger.info(
+                "v3_ingestion_complete",
+                meeting_id=meeting_id,
+                status=report.status.value if report else "unknown",
+            )
+        except Exception as exc:
+            logger.error(
+                "v3_ingestion_failed",
+                meeting_id=meeting_id,
+                error=str(exc),
+            )
+
+    threading.Thread(
+        target=_run,
+        daemon=True,
+        name=f"ingest-v3-{meeting_id[:8]}",
+    ).start()
+
+
+@app.post(APIEndpoints.V3_QUERY)
+@limiter.limit("20/minute")
+async def query_meeting_v3(
+    request: Request,
+    body: dict,
+) -> JSONResponse:
+    """V3 query — LangGraph pipeline with chat history and semantic cache.
+
+    Body JSON:
+        question (str): Natural-language question.
+        meeting_ids (list[str], optional): Restrict search to these meetings.
+        session_id (str, optional): Chat session ID for multi-turn context.
+        user_id (str, optional): User ID for personalisation.
+    """
+    try:
+        question = body.get("question", "").strip()
+        if not question:
+            raise ValidationError("question is required", context={"body": body})
+
+        container = get_di_container()
+        graph = container.get_query_graph()
+
+        state = {
+            "question": question,
+        }
+        if body.get("meeting_ids"):
+            state["meeting_ids"] = body["meeting_ids"]
+        if body.get("session_id"):
+            state["session_id"] = body["session_id"]
+        if body.get("user_id"):
+            state["user_id"] = body["user_id"]
+
+        result = graph.invoke(state)
+        cited = result.get("cited_answer")
+
+        if cited is None:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": "Query pipeline did not produce an answer"},
+            )
+
+        response = cited.model_dump()
+        response["pipeline"] = "v3"
+        return JSONResponse(content=response)
+
+    except AppException as e:
+        logger.warning("v3_query_error", error_code=e.error_code)
+        return JSONResponse(status_code=e.http_status, content=e.to_dict())
+    except Exception as e:
+        error_response = handle_error(e, scope=LogScope.API)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_response,
+        )
+
+
+@app.get("/api/v3/chat/sessions")
+@limiter.limit("30/minute")
+async def list_chat_sessions(
+    request: Request,
+    user_id: str = "",
+    limit: int = 20,
+) -> JSONResponse:
+    """List chat sessions for a user."""
+    try:
+        container = get_di_container()
+        chat_history = container.get_chat_history()
+
+        if chat_history is None:
+            return JSONResponse(content={"sessions": [], "message": "Chat history not enabled"})
+
+        sessions = chat_history.list_sessions(user_id=user_id, limit=limit)
+        return JSONResponse(
+            content={
+                "sessions": [
+                    {
+                        "session_id": s.session_id,
+                        "user_id": s.user_id,
+                        "turns": len(s.turns),
+                        "created_at": s.created_at,
+                        "updated_at": s.updated_at,
+                    }
+                    for s in sessions
+                ]
+            }
+        )
+    except Exception as e:
+        error_response = handle_error(e, scope=LogScope.API)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_response,
+        )
+
+
+@app.get("/api/v3/chat/{session_id}")
+@limiter.limit("30/minute")
+async def get_chat_session(
+    request: Request,
+    session_id: str,
+) -> JSONResponse:
+    """Get full chat session with all turns."""
+    try:
+        container = get_di_container()
+        chat_history = container.get_chat_history()
+
+        if chat_history is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat history not enabled",
+            )
+
+        session = chat_history.get_session(session_id)
+        if session is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Session {session_id} not found",
+            )
+
+        return JSONResponse(content=session.model_dump())
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_response = handle_error(e, scope=LogScope.API)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_response,
+        )
+
+
+@app.get("/api/v3/user/{user_id}/profile")
+@limiter.limit("30/minute")
+async def get_user_profile(
+    request: Request,
+    user_id: str,
+) -> JSONResponse:
+    """Get user memory profile."""
+    try:
+        container = get_di_container()
+        user_memory = container.get_user_memory()
+
+        if user_memory is None:
+            return JSONResponse(
+                content={"user_id": user_id, "message": "User memory not enabled"}
+            )
+
+        profile = user_memory.get_profile(user_id)
+        if profile is None:
+            return JSONResponse(
+                content={"user_id": user_id, "facts": [], "preferences": {}}
+            )
+
+        return JSONResponse(content=profile.model_dump())
+
+    except Exception as e:
+        error_response = handle_error(e, scope=LogScope.API)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_response,
+        )
+
+
+@app.get("/api/v3/graph/{graph_name}")
+async def get_graph_visualization(graph_name: str) -> JSONResponse:
+    """Return Mermaid diagram source for a LangGraph pipeline.
+
+    Args:
+        graph_name: Either "ingestion" or "query".
+
+    Returns:
+        JSON with ``mermaid`` key containing the diagram source.
+    """
+    try:
+        container = get_di_container()
+
+        if graph_name == "ingestion":
+            graph = container.get_ingestion_graph()
+        elif graph_name == "query":
+            graph = container.get_query_graph()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Unknown graph: {graph_name}. Use 'ingestion' or 'query'.",
+            )
+
+        mermaid = graph.get_graph().draw_mermaid()
+        return JSONResponse(
+            content={
+                "graph_name": graph_name,
+                "mermaid": mermaid,
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_response = handle_error(e, scope=LogScope.API)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_response,
+        )

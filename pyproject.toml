@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "meeting-intelligence-system"
-version = "2.0.0"
+version = "3.0.0"
 description = "AI-powered meeting transcript analysis system"
 authors = ["Gen AI Engineer"]
 package-mode = false
@@ -9,10 +9,12 @@ package-mode = false
 python = "^3.11"
 fastapi = "^0.109.0"
 uvicorn = "^0.27.0"
-llama-index = "^0.10.0"
-llama-index-llms-bedrock = "^0.1.0"
-llama-index-embeddings-bedrock = "^0.1.0"
-llama-index-embeddings-openai = "^0.1.0"
+langgraph = "^0.2.0"
+langchain-core = "^0.3.0"
+langchain-openai = "^0.2.0"
+langchain-aws = "^0.2.0"
+langchain-text-splitters = "^0.3.0"
+tiktoken = "^0.7.0"
 openai = "^1.0.0"
 pydantic = "^2.6.0"
 pydantic-settings = "^2.1.0"

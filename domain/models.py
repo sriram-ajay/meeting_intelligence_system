@@ -117,13 +117,18 @@ class Citation(BaseModel):
 
 
 class CitedAnswer(BaseModel):
-    """Query response with grounded citations."""
+    """Query response with grounded citations and token usage."""
 
     answer: str
     citations: List[Citation] = []
     retrieved_context: List[str] = []
     meeting_ids: List[str] = []
     latency_ms: float = 0.0
+    # Token tracking (Phase 5 — populated by LangChain callback)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
 
 
 class IngestionReport(BaseModel):
@@ -182,3 +187,83 @@ class EvalResult(BaseModel):
     evaluated_at: str = ""  # ISO 8601
     latency_ms: float = 0.0
     metadata: Dict[str, str] = {}
+
+
+# ---------------------------------------------------------------------------
+# Semantic query cache (Phase 9)
+# ---------------------------------------------------------------------------
+
+
+class CachedQuery(BaseModel):
+    """A previously-answered query stored for semantic cache lookup.
+
+    The embedding is used for cosine similarity search — if a new query
+    is close enough (above ``similarity_threshold``) the cached answer
+    is returned immediately, saving an LLM call + vector search.
+    """
+
+    cache_id: str
+    query_text: str
+    query_embedding: List[float]
+    meeting_ids: List[str] = []
+    cited_answer: CitedAnswer
+    created_at: str = ""  # ISO 8601
+    ttl: int = 0  # Unix timestamp for DynamoDB TTL auto-expiry
+
+
+# ---------------------------------------------------------------------------
+# Chat history (Phase 10)
+# ---------------------------------------------------------------------------
+
+
+class ChatTurn(BaseModel):
+    """Single question/answer exchange in a conversation."""
+
+    turn_id: str
+    question: str
+    answer: str
+    meeting_ids: List[str] = []
+    timestamp: str = ""  # ISO 8601
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
+class ChatSession(BaseModel):
+    """A multi-turn conversation session.
+
+    Stores the full history so the QA prompt can include previous
+    turns for context-aware follow-up questions.
+    """
+
+    session_id: str
+    user_id: str = ""
+    turns: List[ChatTurn] = []
+    created_at: str = ""  # ISO 8601
+    updated_at: str = ""  # ISO 8601
+
+
+# ---------------------------------------------------------------------------
+# User memory (Phase 11)
+# ---------------------------------------------------------------------------
+
+
+class UserFact(BaseModel):
+    """A single fact extracted from a user's interactions."""
+
+    fact_id: str
+    text: str
+    source_session_id: str = ""
+    created_at: str = ""  # ISO 8601
+
+
+class UserProfile(BaseModel):
+    """Persistent user memory — stores facts and preferences learned
+    across sessions for personalised responses.
+    """
+
+    user_id: str
+    display_name: str = ""
+    facts: List[UserFact] = []
+    preferences: Dict[str, str] = {}
+    created_at: str = ""  # ISO 8601
+    updated_at: str = ""  # ISO 8601

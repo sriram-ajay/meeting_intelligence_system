@@ -1,0 +1,134 @@
+# Meeting Intelligence System — Code Review pointers
+
+
+V1 → V2 Evolution
+
+ Testability | Direct boto3 = fragile mocks | Ports & adapters = mock at boundary |
+ Vector Store | LanceDB didn't scale on S3 | S3 Vectors = managed serverless |
+ Chunking | RAG Fusion + Reranker = latency + cost | Sliding window = simple |
+ Ingestion | Synchronous = blocked API | Async ECS RunTask |
+ Retrieval | LlamaIndex  | Plain Python = debuggable |
+ Evaluation | Ragas local-only | DeepEval against live deployment |
+ Networking | Public subnets | Private subnets + VPC endpoints |
+Prompts | Verbose generic prompts | Minimal grounded prompts |
+
+
+Guardrails approach:
+===================
+Two layers, both using the LLM:
+Input validation— before any retrieval,  SAFE or UNSAFE(jailbreak attempts, toxicity, prompt injection)
+Output grounding — after generation, (answer is actually supported by the retrieved context)
+If it detects hallucination - 'safe response' that only uses the provided passages.
+FAIL OPEN on errors
+
+ CODE QUALITY
+
+Test strategy
+automated and manual:
+
+All external calls are mocked at the port boundary. Services use `MagicMock` instances that implement the port contract.
+Domain models: Pydantic validation, enum behavior, serialization
+Adapters: mocked boto3 `ClientError` handling, S3 URI parsing, DynamoDB serialization
+Services: full pipeline tests with mocked ports — happy path, edge cases (empty results, parsing failures)
+Worker: environment variable handling, error propagation
+Shared utils: config loading, validation, logging decorators
+
+Manual LLM evaluation (11 transcripts):
+I tested the live system against 11 sample transcripts covering different meeting types — board meetings, technical reviews, sales calls, brainstorms, legal discussions, casual check-ins, and deliberately fragmented transcripts. I uploaded each, ran queries manually, checked citation accuracy, and used the DeepEval Monitoring tab to measure Faithfulness and Answer Relevancy scores.
+
+ERROR HANDLING
+=============
+"Structured exception hierarchy: `AppException` base class with `error_code`, `message`, `context`, `http_status`, and `to_dict()` serialization. 
+Subclasses: `ValidationError` (400), `QueryError` (400), `IngestionError` (500), `ExternalServiceError` (503). Every adapter wraps `boto3.ClientError`
+
+Logging structure
+================
+JSON-structured with structlog. 
+`scope` field (e.g., `ingestion`, `query_service`, `adapter`, `worker`) 
+context IDs (meeting_id, error details). 
+`@log_execution` decorator that auto-logs function entry, exit, timing, and exceptions. 
+This makes CloudWatch insights
+
+
+
+missing & Enhancements
+======================
+1.Golden question set — 10-20 curated question/expected-answer pairs per transcript type,
+ run as a regression suite. Any change to chunking, prompts, or model selection would immediately show quality degradation.
+2.Automated integration tests** — Docker Compose already has LocalStack. I'd add a CI job that uploads a transcript, 
+polls until READY, runs the golden queries, and asserts citation correctness.
+3.Load testing — no benchmarking of concurrent queries or ingestion throughput yet.
+ 
+4.For production, the manual evaluation needs to become automated and continuous."
+
+5.Reliability : Worker failure leaves PENDING forever → need retry/DLQ.
+6.Remove NAT dependency and completely private with titan embeddings.
+7.Security: HTTP-only ALB → needs HTTPS/ACM/Route53; hardcoded UI password → needs Cognito, introduce API gateway.
+8.re look at IAM policies for any broad permissions
+9.Observability: No CloudWatch alarms, no distributed tracing (X-Ray/OTEL), eval runs on-demand not automated
+10.performance Test: No load testing, no chaos testing, no backup strategy, no runbook
+11. No Retry Logic on Adapter Calls
+boto3's built-in retry covers most transient errors, but for production I'd add application-level retries with exponential backoff and jitter on the adapter layer. 
+12.Scan Instead of Query for DynamoDB
+
+
+ 
+Token usage minotoring and latency affects.
+=================================================================
+Every query burns tokens in 4 places:
+
+Embedding((~20-50), Input safety check(~80), Main generation(~5,000), Grounding verification(~5,500).
+          Total: ~11,000-12,000 tokens per query 
+thats the cost of multi guardrail using LLm as judge architecture.
+
+Latency Breakdown :
+ input safety (1000-1200ms), 
+ embed question(300-800ms), vector search(300 - 500), 
+ Generation(1500-2000ms) , Grounding check (1500-2000ms), 
+ S3 chunk map download (200-300ms)
+                        Totally ~ 6-10 seconds.
+
+
+What I Track Today : latency_ms is recorded on every CitedAnswer and EvalResult — logged in JSON, shown in the UI
+@log_execution decorator auto-logs entry, exit, and timing for key functions
+
+DeepEval evaluation tracks latency_ms per evaluation run in the history file
+
+What's Missing for Production Monitoring
+no Token counting: For chunking purposes, I use len(text.split()) for chunking — a rough word-count heuristic, not actual tokenization.
+
+Cost dashboard + cloud watch alert based on cutom metrics.
+
+Possibilities: use bedrock guardrail service and it automatically evaluates the safety and post generation grounding and remove the need for extra calls. 
+
+Langchain and langraph, solves a lot of issues with Agentic systems, frameworks built for designing agents. (prompt memory, context chaining, token counting, orchestration, state, loops, re-tries etc)
+
+
+
+
+
+
+
+
+
+ Layers
+```
+domain/models.py          → Pure Pydantic models (no AWS)
+ports/*.py                → Protocol interfaces (7 ports)
+adapters/*.py             → AWS implementations (5 adapters)
+services/*.py             → Business logic (4 services)
+api_service/src/main.py   → FastAPI endpoints
+worker/entrypoint.py      → ECS RunTask worker
+ui_service/src/app.py     → Streamlit UI (3 tabs)
+shared_utils/             → Config, logging, validation, DI, errors, constants
+```
+tests across 15 test files
+7 port interfaces with runtime_checkable Protocol
+concrete adapters** (S3, DynamoDB, S3Vectors, InMemory, JsonEvalStore)
+services (Ingestion, Query, Guardrail, Evaluation)
+3 Docker images** (API, UI, Worker)
+8 VPC endpoints** (6 interface + 2 gateway)
+3-stage CI/CD** pipeline (test → build → deploy)
+OIDC federation** (no static AWS keys)
+512-token chunks** with 1-segment overlap
+1536-dim embeddings** (OpenAI text-embedding-3-small)

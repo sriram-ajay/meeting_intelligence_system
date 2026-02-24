@@ -15,6 +15,8 @@ import time
 import uuid
 from typing import Dict, List, Optional
 
+import tiktoken
+
 from core_intelligence.parser.cleaner import TranscriptParser
 from domain.models import (
     MeetingTranscript,
@@ -42,9 +44,18 @@ logger = get_scoped_logger(LogScope.INGESTION)
 # Chunking helpers (pure functions — no external deps)
 # ---------------------------------------------------------------------------
 
+# tiktoken encoding (cl100k_base works for GPT-4/GPT-3.5/embeddings)
+_ENCODING = tiktoken.get_encoding("cl100k_base")
+
+
 def _compute_hash(content: bytes) -> str:
     """SHA-256 hex digest of raw content."""
     return hashlib.sha256(content).hexdigest()
+
+
+def _count_tokens(text: str) -> int:
+    """Count tokens using tiktoken (cl100k_base) for accurate budgeting."""
+    return len(_ENCODING.encode(text))
 
 
 def _chunk_segments(
@@ -54,8 +65,8 @@ def _chunk_segments(
 ) -> List[Dict]:
     """Sliding-window chunking over normalised transcript segments.
 
-    Groups consecutive segments into chunks up to *max_tokens* (estimated
-    via whitespace split, not a real tokenizer — close enough for chunking).
+    Groups consecutive segments into chunks up to *max_tokens* using
+    tiktoken (cl100k_base) for accurate token counting.
     Adjacent chunks share *overlap* trailing segments so context isn't lost
     at chunk boundaries (e.g. a question in chunk A and answer in chunk B).
 
@@ -82,7 +93,7 @@ def _chunk_segments(
         # Greedily collect segments until we exceed the token budget.
         j = i
         while j < len(segments):
-            seg_tokens = len(segments[j].text.split())
+            seg_tokens = _count_tokens(segments[j].text)
             # "and batch" means: if the batch is empty, always include the
             # first segment even if it alone exceeds max_tokens. This
             # prevents an infinite loop on oversized segments.
